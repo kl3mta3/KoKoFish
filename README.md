@@ -28,14 +28,14 @@ FishTalk is a desktop text-to-speech application built for Windows. It supports 
 
 **Voice Cloning (Fish-Speech only)**
 
-- Record or upload a 15-30 second reference audio clip, Longer audio will be trimmed to 30 seconds
+- Record or upload a 15-180 second reference audio clip, Longer audio will be trimmed to 180 seconds
 - Voice profiles are stored per engine so 1.4 and 1.5 voice libraries stay separate
 - Pre-computes VQ tokens for faster inference at playback time
 
 **Voice Lab**
 
 - Create, rename, and delete voice profiles
-- Reference audio is automatically trimmed to 30 seconds to prevent out-of-memory errors
+- Reference audio is automatically trimmed to 180 seconds to prevent out-of-memory errors
 - Voice Lab is automatically disabled when the Kokoro engine is active
 
 **Speech to Text**
