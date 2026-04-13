@@ -1,7 +1,7 @@
 # FishTalk
 
 <p align="center">
-  <img src="https://github.com/kl3mta3/SphereSSL/blob/main/Images/Icon.png" alt="FishTalk Icon" width="300"/>
+  <img src="https://github.com/kl3mta3/FishTalk/blob/main/Images/icon.png" alt="FishTalk Icon" width="300"/>
 </p>
 
 <h1 align="center">FishTalk</h1>
