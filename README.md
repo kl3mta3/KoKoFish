@@ -50,15 +50,28 @@ FishTalk is a desktop text-to-speech application built for Windows. It supports 
 ## Requirements
 
 - Windows 10 or later
-- Python 3.11 or later. Will ask to install if not found.
+- Python 3.11 or later. (Will install if not found.)
 - FFmpeg (Will install if not found.)
-- Fish-Speech repository (Will ask to install if not found.) cloned into the project directory for Fish-Speech engines
+- Fish-Speech repository (Will install if not found.) cloned into the project directory for Fish-Speech engines
 - NVIDIA GPU with CUDA support is optional but improves Fish-Speech generation speed significantly
 
 ---
 
 ## Setup
 
+#Easy Install:
+1. Download and extract FiahTalk-Lite
+2. Run FishTalk.exe.  This will install all needed dependencies
+
+
+#Offline Install:
+1. Download and extract FishTalk-Kokoro_Only
+2. Download and extract Model-fish-speech-1.4 inside the FishTalk folder
+3. Download and extract Model-fish-speech-1.5 inside the FishTalk folder
+4. Run FishTalk.exe. It will still install Python from the included installer
+(If you miss any of these and have an internet connection it will grab them.)
+
+#Advanced Install:
 1. Clone this repository:
 
 ```
@@ -83,6 +96,7 @@ python main.py
 On first launch the app will automatically download anything that is missing:
 
 - FFmpeg (~75 MB, one-time)
+- Kokoro model files (~115 MB, one-time)
 - Fish-Speech v1.4.3 source code (~20 MB, one-time)
 - Fish-Speech 1.4 model checkpoints (~1.5 GB, one-time)
 - Fish-Speech 1.5 model checkpoints (~1.5 GB, one-time)

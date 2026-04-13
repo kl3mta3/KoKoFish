@@ -29,6 +29,9 @@ logs/
 # Compiled executables (distribute via releases, not source)
 *.exe
 
+# Zip files
+*.zip
+
 # =============================================================================
 # Large downloaded assets — auto-downloaded on first run, cannot go on GitHub
 # =============================================================================
