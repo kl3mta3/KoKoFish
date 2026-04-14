@@ -33,7 +33,16 @@ from utils import (
 )
 from voice_manager import VoiceManager
 
+import re
+import time
+
 logger = logging.getLogger("FishTalk.ui")
+
+# ---------------------------------------------------------------------------
+# App paths
+# ---------------------------------------------------------------------------
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+AUDIO_TEMP_DIR = os.path.join(APP_DIR, "temp", "audio")
 
 # ---------------------------------------------------------------------------
 # Color palette
@@ -91,8 +100,27 @@ class FishTalkUI:
         self._audio_sr = None
         self._play_position = 0
 
+        # Item preview playback (play completed items from the playlist)
+        self._preview_idx = -1
+        self._preview_paused = False
+        self._preview_stream = None
+        self._preview_audio = None
+        self._preview_pos = 0
+        self._preview_sr = None
+
+        # Most recently completed WAV (used by manual Save MP3)
+        self._last_wav_path = None
+
+        # Push persisted generation settings into engine on startup
+        self._sync_gen_settings_to_engine()
+
         self._build_ui()
         self._start_ram_monitor()
+        threading.Thread(
+            target=self._cleanup_old_temp_audio,
+            daemon=True,
+            name="TempCleanup",
+        ).start()
 
     # ------------------------------------------------------------------
     # UI construction
@@ -331,15 +359,90 @@ class FishTalkUI:
         self.cad_slider.configure(command=self._on_cadence_change)
         self.cad_slider.pack()
 
-        # Playlist
-        playlist_label = ctk.CTkLabel(
-            tab,
+        # ── Playlist header row ──────────────────────────────────────────
+        playlist_header = ctk.CTkFrame(tab, fg_color="transparent")
+        playlist_header.pack(fill="x", padx=15, pady=(10, 2))
+
+        ctk.CTkLabel(
+            playlist_header,
             text="📋  Playlist",
             font=(FONT_FAMILY, 14, "bold"),
             text_color=COLORS["text_primary"],
-        )
-        playlist_label.pack(anchor="w", padx=15, pady=(10, 2))
+        ).pack(side="left")
 
+        # Transport buttons — right side of header
+        hdr_btn = {"font": (FONT_FAMILY, 12, "bold"), "corner_radius": 7, "height": 32, "width": 90}
+
+        self.btn_save_mp3 = ctk.CTkButton(
+            playlist_header,
+            text="💾 Save",
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self._tts_save_mp3,
+            **hdr_btn,
+        )
+        self.btn_save_mp3.pack(side="right", padx=(4, 0))
+
+        self.btn_stop = ctk.CTkButton(
+            playlist_header,
+            text="⏹ Stop",
+            fg_color=COLORS["danger"],
+            hover_color="#d43d62",
+            command=self._tts_stop,
+            **hdr_btn,
+        )
+        self.btn_stop.pack(side="right", padx=(4, 0))
+
+        self.btn_pause = ctk.CTkButton(
+            playlist_header,
+            text="⏸ Pause",
+            fg_color=COLORS["warning"],
+            hover_color="#e6bc5c",
+            text_color="#1a1a2e",
+            command=self._tts_pause,
+            **hdr_btn,
+        )
+        self.btn_pause.pack(side="right", padx=(4, 0))
+
+        self.btn_play = ctk.CTkButton(
+            playlist_header,
+            text="▶ Read",
+            fg_color=COLORS["success"],
+            hover_color="#05b890",
+            command=self._tts_play,
+            **hdr_btn,
+        )
+        self.btn_play.pack(side="right", padx=(4, 0))
+
+        # Work Silent + Auto Save toggles — between title and buttons
+        self.silent_mode_var = ctk.BooleanVar(value=getattr(self.settings, 'silent_mode', False))
+        silent_frame = ctk.CTkFrame(playlist_header, fg_color="transparent")
+        silent_frame.pack(side="right", padx=(0, 16))
+        ctk.CTkLabel(
+            silent_frame, text="🔇", font=(FONT_FAMILY, 13),
+            text_color=COLORS["text_secondary"],
+        ).pack(side="left", padx=(0, 3))
+        self.silent_switch = ctk.CTkSwitch(
+            silent_frame, text="", variable=self.silent_mode_var,
+            width=40, progress_color=COLORS["accent"],
+            command=self._on_silent_toggle,
+        )
+        self.silent_switch.pack(side="left")
+
+        self.auto_save_var = ctk.BooleanVar(value=False)
+        auto_save_frame = ctk.CTkFrame(playlist_header, fg_color="transparent")
+        auto_save_frame.pack(side="right", padx=(0, 10))
+        ctk.CTkLabel(
+            auto_save_frame, text="📂", font=(FONT_FAMILY, 13),
+            text_color=COLORS["text_secondary"],
+        ).pack(side="left", padx=(0, 3))
+        self.auto_save_switch = ctk.CTkSwitch(
+            auto_save_frame, text="", variable=self.auto_save_var,
+            width=40, progress_color=COLORS["success"],
+        )
+        self.auto_save_switch.pack(side="left")
+
+        # ── Playlist scrollable frame ────────────────────────────────────
         self.playlist_frame = ctk.CTkScrollableFrame(
             tab,
             fg_color=COLORS["bg_input"],
@@ -357,7 +460,7 @@ class FishTalkUI:
         )
         self.playlist_empty_label.pack(pady=30)
 
-        # Progress bar
+        # ── Progress / status ────────────────────────────────────────────
         self.tts_progress = ctk.CTkProgressBar(
             tab,
             progress_color=COLORS["accent"],
@@ -365,7 +468,7 @@ class FishTalkUI:
             height=6,
             corner_radius=3,
         )
-        self.tts_progress.pack(fill="x", padx=15, pady=(5, 5))
+        self.tts_progress.pack(fill="x", padx=15, pady=(5, 2))
         self.tts_progress.set(0)
 
         self.tts_status = ctk.CTkLabel(
@@ -376,89 +479,49 @@ class FishTalkUI:
         )
         self.tts_status.pack(anchor="w", padx=15)
 
-        # Transport buttons
-        btn_frame = ctk.CTkFrame(tab, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=15, pady=(5, 10))
+        # ── Bottom selection bar ─────────────────────────────────────────
+        sel_bar = ctk.CTkFrame(tab, fg_color="transparent")
+        sel_bar.pack(fill="x", padx=15, pady=(5, 10))
 
-        btn_style = {
-            "font": (FONT_FAMILY, 13, "bold"),
-            "corner_radius": 8,
-            "height": 38,
-            "width": 110,
-        }
+        sel_btn = {"font": (FONT_FAMILY, 12, "bold"), "corner_radius": 8, "height": 34}
 
-        self.btn_play = ctk.CTkButton(
-            btn_frame,
-            text="▶  Play",
-            fg_color=COLORS["success"],
-            hover_color="#05b890",
-            command=self._tts_play,
-            **btn_style,
-        )
-        self.btn_play.pack(side="left", padx=(0, 8))
-
-        self.btn_pause = ctk.CTkButton(
-            btn_frame,
-            text="⏸  Pause",
-            fg_color=COLORS["warning"],
-            hover_color="#e6bc5c",
-            text_color="#1a1a2e",
-            command=self._tts_pause,
-            **btn_style,
-        )
-        self.btn_pause.pack(side="left", padx=(0, 8))
-
-        self.btn_stop = ctk.CTkButton(
-            btn_frame,
-            text="⏹  Stop",
-            fg_color=COLORS["danger"],
-            hover_color="#d43d62",
-            command=self._tts_stop,
-            **btn_style,
-        )
-        self.btn_stop.pack(side="left", padx=(0, 8))
-
-        self.btn_save_mp3 = ctk.CTkButton(
-            btn_frame,
-            text="💾  Save MP3",
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            command=self._tts_save_mp3,
-            **btn_style,
-        )
-        self.btn_save_mp3.pack(side="left", padx=(0, 8))
-
-        self.btn_clear_playlist = ctk.CTkButton(
-            btn_frame,
-            text="🗑  Clear",
-            fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"],
-            border_color=COLORS["border"],
-            border_width=1,
-            command=self._tts_clear_playlist,
-            **btn_style,
-        )
-        self.btn_clear_playlist.pack(side="right")
-
-        # Work Silent toggle — generate only, no audio output
-        self.silent_mode_var = ctk.BooleanVar(value=getattr(self.settings, 'silent_mode', False))
-        silent_frame = ctk.CTkFrame(btn_frame, fg_color="transparent")
-        silent_frame.pack(side="right", padx=(0, 12))
-        ctk.CTkLabel(
-            silent_frame,
-            text="🔇 Work Silent",
-            font=(FONT_FAMILY, 12),
-            text_color=COLORS["text_secondary"],
+        ctk.CTkButton(
+            sel_bar, text="🔊  TTS Selected",
+            fg_color=COLORS["success"], hover_color="#05b890",
+            command=self._tts_selected,
+            width=140, **sel_btn,
         ).pack(side="left", padx=(0, 6))
-        self.silent_switch = ctk.CTkSwitch(
-            silent_frame,
-            text="",
-            variable=self.silent_mode_var,
-            width=40,
-            progress_color=COLORS["accent"],
-            command=self._on_silent_toggle,
-        )
-        self.silent_switch.pack(side="left")
+
+        ctk.CTkButton(
+            sel_bar, text="▶  Play Selected",
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=self._play_selected,
+            width=140, **sel_btn,
+        ).pack(side="left", padx=(0, 16))
+
+        ctk.CTkButton(
+            sel_bar, text="☑ All",
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            border_color=COLORS["border"], border_width=1,
+            command=self._select_all,
+            width=70, **sel_btn,
+        ).pack(side="left", padx=(0, 4))
+
+        ctk.CTkButton(
+            sel_bar, text="☐ None",
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            border_color=COLORS["border"], border_width=1,
+            command=self._deselect_all,
+            width=70, **sel_btn,
+        ).pack(side="left", padx=(0, 4))
+
+        ctk.CTkButton(
+            sel_bar, text="🗑 Clear",
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            border_color=COLORS["border"], border_width=1,
+            command=self._tts_clear_playlist,
+            width=80, **sel_btn,
+        ).pack(side="right")
 
     # ==================================================================
     # TAB 2: Transcribe (STT)
@@ -673,12 +736,75 @@ class FishTalkUI:
 
         ctk.CTkLabel(
             tab,
-            text="Upload a 15–30 second WAV reference clip to create a new voice.\n"
+            text="Upload a WAV reference clip to create a new voice. "
                  "Zero-shot cloning — no fine-tuning required.",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_muted"],
             justify="left",
-        ).pack(anchor="w", padx=15, pady=(0, 10))
+        ).pack(anchor="w", padx=15, pady=(0, 6))
+
+        # Generation quality settings
+        gen_frame = ctk.CTkFrame(tab, fg_color=COLORS["bg_card"], corner_radius=8)
+        gen_frame.pack(fill="x", padx=15, pady=(0, 10))
+
+        ctk.CTkLabel(
+            gen_frame,
+            text="⚙  Generation Settings",
+            font=(FONT_FAMILY, 11, "bold"),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor="w", padx=12, pady=(8, 4))
+
+        sliders_row = ctk.CTkFrame(gen_frame, fg_color="transparent")
+        sliders_row.pack(fill="x", padx=12, pady=(0, 10))
+
+        # Map setting key → engine attribute name
+        _engine_attr = {
+            "tts_temperature": "temperature",
+            "tts_top_p": "top_p",
+            "tts_repetition_penalty": "repetition_penalty",
+            "tts_chunk_length": "chunk_length",
+        }
+
+        def _make_gen_slider(parent, label, from_, to, initial, resolution, setting_key, fmt="{:.2f}"):
+            col = ctk.CTkFrame(parent, fg_color="transparent")
+            col.pack(side="left", expand=True, fill="x", padx=(0, 16))
+            lbl = ctk.CTkLabel(
+                col,
+                text=f"{label}: {fmt.format(initial)}",
+                font=(FONT_FAMILY, 11),
+                text_color=COLORS["text_secondary"],
+            )
+            lbl.pack(anchor="w")
+            def _on_change(v, _sk=setting_key):
+                val = round(float(v) / resolution) * resolution
+                lbl.configure(text=f"{label}: {fmt.format(val)}")
+                setattr(self.settings, _sk, val)
+                self.settings.save()
+                # Push live to engine so it takes effect on next generation
+                attr = _engine_attr.get(_sk)
+                if attr and self.tts and hasattr(self.tts, attr):
+                    setattr(self.tts, attr, val)
+            sl = ctk.CTkSlider(
+                col,
+                from_=from_, to=to,
+                number_of_steps=round((to - from_) / resolution),
+                command=_on_change,
+                progress_color=COLORS["accent"],
+                button_color=COLORS["accent_light"],
+                height=16,
+            )
+            sl.set(initial)
+            sl.pack(fill="x", pady=(2, 0))
+            return sl
+
+        _make_gen_slider(sliders_row, "Temperature", 0.1, 1.0,
+                         getattr(self.settings, "tts_temperature", 0.7), 0.05, "tts_temperature")
+        _make_gen_slider(sliders_row, "Top-P", 0.1, 1.0,
+                         getattr(self.settings, "tts_top_p", 0.7), 0.05, "tts_top_p")
+        _make_gen_slider(sliders_row, "Repetition Penalty", 1.0, 1.8,
+                         getattr(self.settings, "tts_repetition_penalty", 1.2), 0.05, "tts_repetition_penalty")
+        _make_gen_slider(sliders_row, "Chunk Length", 50, 300,
+                         getattr(self.settings, "tts_chunk_length", 150), 10, "tts_chunk_length", fmt="{:.0f}")
 
         # Voice grid (scrollable)
         self.voice_grid_frame = ctk.CTkScrollableFrame(
@@ -1165,7 +1291,18 @@ class FishTalkUI:
         try:
             text = read_file(path)
             name = os.path.basename(path)
-            item = {"name": name, "text": text, "path": path}
+            # Per-item voice: inherit from the last item, or fall back to global default
+            if self._playlist_items:
+                default_voice = self._playlist_items[-1].get("voice", self.tts_voice_var.get())
+            else:
+                default_voice = self.tts_voice_var.get()
+            item = {
+                "name": name,
+                "text": text,
+                "path": path,
+                "selected": True,
+                "voice": default_voice,
+            }
             self._playlist_items.append(item)
             self._rebuild_playlist_ui()
             logger.info("Added to playlist: %s (%d chars)", name, len(text))
@@ -1188,59 +1325,249 @@ class FishTalkUI:
             self.playlist_empty_label.pack(pady=30)
             return
 
+        is_kokoro = getattr(self.settings, 'engine', 'fish14') == 'kokoro'
+        if is_kokoro:
+            voice_options = list(KOKORO_VOICES.keys())
+        else:
+            voice_options = self.voices.get_voice_names() or ["Default (Random)"]
+
         for idx, item in enumerate(self._playlist_items):
+            is_active = (idx == self._current_playing)
+            row_color = COLORS["accent"] if is_active else COLORS["bg_card"]
             row = ctk.CTkFrame(
                 self.playlist_frame,
-                fg_color=COLORS["bg_card"] if idx != self._current_playing else COLORS["accent"],
+                fg_color=row_color,
                 corner_radius=6,
-                height=40,
+                height=36,
             )
             row.pack(fill="x", pady=2, padx=4)
             row.pack_propagate(False)
 
-            # Index
-            idx_color = COLORS["text_primary"] if idx != self._current_playing else "#ffffff"
-            ctk.CTkLabel(
-                row,
-                text=f"{idx + 1}.",
-                font=(FONT_FAMILY, 12),
-                text_color=idx_color,
-                width=30,
-            ).pack(side="left", padx=(10, 5))
+            txt_color = "#ffffff" if is_active else COLORS["text_primary"]
 
-            # File name
-            ctk.CTkLabel(
-                row,
-                text=item["name"],
-                font=(FONT_FAMILY, 12),
-                text_color=idx_color,
-            ).pack(side="left", padx=5)
+            # ── Left: checkbox ───────────────────────────────────────────
+            sel_var = ctk.BooleanVar(value=item.get("selected", True))
 
-            # Character count
+            def _on_toggle(v=sel_var, i=idx):
+                self._playlist_items[i]["selected"] = v.get()
+
+            ctk.CTkCheckBox(
+                row,
+                text="",
+                variable=sel_var,
+                command=_on_toggle,
+                width=20,
+                height=20,
+                checkbox_width=16,
+                checkbox_height=16,
+                corner_radius=3,
+                border_color=COLORS["border"],
+                checkmark_color="#ffffff",
+            ).pack(side="left", padx=(8, 2))
+
+            # ── Status dot ───────────────────────────────────────────────
+            audio_path = item.get("audio_path", "")
+            has_audio = bool(audio_path and os.path.isfile(audio_path))
+            dot = "✅" if has_audio else ("⏳" if is_active else "○")
+            ctk.CTkLabel(
+                row, text=dot, font=(FONT_FAMILY, 11), width=20,
+            ).pack(side="left", padx=(0, 4))
+
+            # ── Index + filename + char count ────────────────────────────
             ctk.CTkLabel(
                 row,
-                text=f"({len(item['text']):,} chars)",
+                text=f"{idx + 1}. {item['name']}",
+                font=(FONT_FAMILY, 12),
+                text_color=txt_color,
+                anchor="w",
+            ).pack(side="left", padx=(0, 4))
+
+            ctk.CTkLabel(
+                row,
+                text=f"({len(item['text']):,})",
                 font=(FONT_FAMILY, 10),
                 text_color=COLORS["text_muted"],
-            ).pack(side="left", padx=5)
+            ).pack(side="left")
 
-            # Remove button
+            # ── Right: remove button ─────────────────────────────────────
             ctk.CTkButton(
                 row,
                 text="✕",
-                width=28,
-                height=24,
-                corner_radius=4,
-                fg_color=COLORS["danger"],
-                hover_color="#d43d62",
+                width=26, height=22, corner_radius=4,
+                fg_color=COLORS["danger"], hover_color="#d43d62",
                 font=(FONT_FAMILY, 11),
                 command=lambda i=idx: self._tts_remove_item(i),
-            ).pack(side="right", padx=8)
+            ).pack(side="right", padx=(0, 6))
+
+            # ── Preview play/pause ───────────────────────────────────────
+            if has_audio:
+                is_previewing = (idx == self._preview_idx and not self._preview_paused)
+                ctk.CTkButton(
+                    row,
+                    text="⏸" if is_previewing else "▶",
+                    width=26, height=22, corner_radius=4,
+                    fg_color=COLORS["success"] if is_previewing else COLORS["bg_input"],
+                    hover_color="#05b890" if is_previewing else COLORS["bg_card_hover"],
+                    border_color=COLORS["success"], border_width=1,
+                    font=(FONT_FAMILY, 11),
+                    command=lambda i=idx: self._preview_item(i),
+                ).pack(side="right", padx=(0, 3))
+
+            # ── Per-item voice dropdown ──────────────────────────────────
+            item_voice = item.get("voice", voice_options[0] if voice_options else "")
+            # Validate stored voice is still in current options
+            if item_voice not in voice_options:
+                item_voice = voice_options[0] if voice_options else item_voice
+
+            voice_var = ctk.StringVar(value=item_voice)
+
+            def _on_voice_change(v, i=idx, var=voice_var):
+                self._playlist_items[i]["voice"] = var.get()
+
+            ctk.CTkOptionMenu(
+                row,
+                values=voice_options,
+                variable=voice_var,
+                width=150,
+                height=24,
+                fg_color=COLORS["bg_input"],
+                button_color=COLORS["accent"],
+                button_hover_color=COLORS["accent_hover"],
+                dropdown_fg_color=COLORS["bg_card"],
+                dropdown_hover_color=COLORS["bg_card_hover"],
+                font=(FONT_FAMILY, 11),
+                command=lambda v, i=idx, var=voice_var: _on_voice_change(v, i, var),
+            ).pack(side="right", padx=(0, 4))
 
     def _tts_remove_item(self, index: int):
+        if self._preview_idx == index:
+            self._stop_preview()
         if 0 <= index < len(self._playlist_items):
             self._playlist_items.pop(index)
             self._rebuild_playlist_ui()
+
+    def _preview_item(self, idx: int):
+        """Play or pause the generated audio for a completed playlist item."""
+        import sounddevice as _sd
+        import soundfile as _sf
+
+        if idx < 0 or idx >= len(self._playlist_items):
+            return
+        item = self._playlist_items[idx]
+        audio_path = item.get("audio_path", "")
+        if not audio_path or not os.path.isfile(audio_path):
+            return
+
+        # Toggle pause if this item is already active
+        if self._preview_idx == idx:
+            self._preview_paused = not self._preview_paused
+            self._rebuild_playlist_ui()
+            return
+
+        # Stop whatever was playing before and start fresh
+        self._stop_preview()
+
+        data, sr = _sf.read(audio_path, dtype="float32")
+        if data.ndim > 1:
+            data = data[:, 0]
+
+        self._preview_audio = data
+        self._preview_sr = sr
+        self._preview_pos = 0
+        self._preview_idx = idx
+        self._preview_paused = False
+        self._rebuild_playlist_ui()
+
+        def _callback(outdata, frames, time_info, status):
+            if self._preview_paused:
+                outdata[:] = 0
+                return
+            vol = self.vol_slider.get() / 100.0
+            remaining = len(self._preview_audio) - self._preview_pos
+            if remaining <= 0:
+                outdata[:] = 0
+                raise _sd.CallbackStop()
+            take = min(frames, remaining)
+            chunk = (self._preview_audio[self._preview_pos:self._preview_pos + take] * vol).astype(np.float32)
+            outdata[:take, 0] = chunk
+            if outdata.shape[1] > 1:
+                outdata[:take, 1] = chunk
+            if take < frames:
+                outdata[take:] = 0
+            self._preview_pos += take
+
+        def _on_finished():
+            self._preview_idx = -1
+            self._preview_paused = False
+            self._preview_stream = None
+            self.root.after(0, self._rebuild_playlist_ui)
+
+        stream = _sd.OutputStream(
+            samplerate=sr,
+            channels=1,
+            dtype="float32",
+            blocksize=2048,
+            callback=_callback,
+            finished_callback=_on_finished,
+        )
+        self._preview_stream = stream
+        stream.start()
+
+    def _stop_preview(self):
+        """Stop any active item preview."""
+        if self._preview_stream:
+            try:
+                self._preview_stream.stop()
+                self._preview_stream.close()
+            except Exception:
+                pass
+            self._preview_stream = None
+        self._preview_idx = -1
+        self._preview_paused = False
+
+    def _sync_gen_settings_to_engine(self):
+        """Push persisted generation quality settings into the TTS engine."""
+        if not self.tts:
+            return
+        mapping = {
+            "tts_temperature": "temperature",
+            "tts_top_p": "top_p",
+            "tts_repetition_penalty": "repetition_penalty",
+            "tts_chunk_length": "chunk_length",
+        }
+        for setting_key, attr in mapping.items():
+            val = getattr(self.settings, setting_key, None)
+            if val is not None and hasattr(self.tts, attr):
+                setattr(self.tts, attr, val)
+
+    def _cleanup_old_temp_audio(self, max_age_days: int = 7):
+        """Delete temp WAVs older than max_age_days from AUDIO_TEMP_DIR."""
+        if not os.path.isdir(AUDIO_TEMP_DIR):
+            return
+        cutoff = time.time() - max_age_days * 86400
+        removed = 0
+        for fname in os.listdir(AUDIO_TEMP_DIR):
+            if not fname.lower().endswith(".wav"):
+                continue
+            fpath = os.path.join(AUDIO_TEMP_DIR, fname)
+            try:
+                if os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+                    removed += 1
+            except Exception:
+                pass
+        if removed:
+            logger.info("Cleaned %d temp audio file(s) older than %d days.", removed, max_age_days)
+
+    @staticmethod
+    def _delete_temp_wav(path: str):
+        """Silently delete a temp WAV file."""
+        try:
+            if path and os.path.isfile(path):
+                os.remove(path)
+                logger.info("Deleted temp WAV: %s", path)
+        except Exception as e:
+            logger.warning("Could not delete temp WAV %s: %s", path, e)
 
     def _tts_clear_playlist(self):
         self._playlist_items.clear()
@@ -1320,7 +1647,7 @@ class FishTalkUI:
         self.tts.load_model(on_progress=on_progress, on_ready=on_ready, on_error=on_error)
 
     def _tts_play(self):
-        """Start TTS playback from the playlist."""
+        """Read all playlist items in order, skipping those already generated."""
         if not self._playlist_items:
             messagebox.showinfo("FishTalk", "Add files to the playlist first.")
             return
@@ -1336,12 +1663,176 @@ class FishTalkUI:
             self._resume_audio()
             return
 
+        # Find first item without audio, skip already-done ones
+        start_idx = 0
+        for i, item in enumerate(self._playlist_items):
+            ap = item.get("audio_path", "")
+            if not ap or not os.path.isfile(ap):
+                start_idx = i
+                break
+        else:
+            # All items already have audio — ask to re-read from top
+            if messagebox.askyesno(
+                "All Done",
+                "All items have already been generated.\nRe-read from the beginning?",
+            ):
+                start_idx = 0
+            else:
+                return
+
+        self._stop_preview()
         self._is_playing = True
-        self._current_playing = 0
+        self._current_playing = start_idx
         self._rebuild_playlist_ui()
         self._play_current_item()
 
-    def _play_current_item(self):
+    def _select_all(self):
+        for item in self._playlist_items:
+            item["selected"] = True
+        self._rebuild_playlist_ui()
+
+    def _deselect_all(self):
+        for item in self._playlist_items:
+            item["selected"] = False
+        self._rebuild_playlist_ui()
+
+    def _tts_selected(self):
+        """Generate TTS for all checked items. Ask before re-generating completed ones."""
+        selected = [i for i, it in enumerate(self._playlist_items) if it.get("selected", True)]
+        if not selected:
+            messagebox.showinfo("FishTalk", "No items selected.")
+            return
+
+        # Check if any already have audio
+        done = [i for i in selected
+                if self._playlist_items[i].get("audio_path") and
+                os.path.isfile(self._playlist_items[i]["audio_path"])]
+        pending = [i for i in selected if i not in done]
+
+        if done and not pending:
+            # All selected are already done
+            if not messagebox.askyesno(
+                "Re-generate?",
+                f"All {len(done)} selected item(s) already have audio.\nRe-generate them?",
+            ):
+                return
+            indices = selected
+        elif done:
+            answer = messagebox.askyesno(
+                "Re-generate?",
+                f"{len(done)} selected item(s) already have audio.\n"
+                f"Re-generate those too, or skip them?\n\n"
+                "Yes = re-generate all  |  No = skip already-done",
+            )
+            indices = selected if answer else pending
+        else:
+            indices = pending
+
+        if not self.tts.is_loaded:
+            for btn in (self.btn_play, self.btn_pause, self.btn_save_mp3):
+                btn.configure(state="disabled")
+            self._ensure_tts_loaded(lambda: self._run_tts_for_indices(indices))
+            return
+
+        self._run_tts_for_indices(indices)
+
+    def _run_tts_for_indices(self, indices: list):
+        """Generate TTS sequentially for the given list of item indices."""
+        if not indices:
+            return
+        self._stop_preview()
+        self._is_playing = True
+        self._tts_queue = list(indices)
+        self._current_playing = self._tts_queue[0]
+        self._rebuild_playlist_ui()
+        self._play_queued_item()
+
+    def _play_queued_item(self):
+        """Advance through _tts_queue and generate each item."""
+        if not getattr(self, "_tts_queue", None):
+            self._is_playing = False
+            self._current_playing = -1
+            self._rebuild_playlist_ui()
+            self.tts_status.configure(text="Done")
+            return
+        self._current_playing = self._tts_queue[0]
+        self._rebuild_playlist_ui()
+        self._play_current_item(advance_fn=self._advance_queued)
+
+    def _advance_queued(self):
+        """Pop the front of the queue and continue."""
+        if getattr(self, "_tts_queue", None):
+            self._tts_queue.pop(0)
+        self.root.after(300, self._play_queued_item)
+
+    def _play_selected(self):
+        """Play already-generated audio for all checked items in sequence."""
+        ready = [
+            i for i, it in enumerate(self._playlist_items)
+            if it.get("selected", True)
+            and it.get("audio_path")
+            and os.path.isfile(it["audio_path"])
+        ]
+        if not ready:
+            messagebox.showinfo("FishTalk", "No selected items have generated audio yet.")
+            return
+        self._stop_preview()
+        self._preview_queue = list(ready)
+        self._run_preview_queue()
+
+    def _run_preview_queue(self):
+        if not getattr(self, "_preview_queue", None):
+            self._preview_idx = -1
+            self._rebuild_playlist_ui()
+            return
+        idx = self._preview_queue[0]
+        item = self._playlist_items[idx]
+
+        import soundfile as _sf
+        import sounddevice as _sd
+        import numpy as _np
+
+        data, sr = _sf.read(item["audio_path"], dtype="float32")
+        if data.ndim > 1:
+            data = data[:, 0]
+
+        self._preview_audio = data
+        self._preview_sr = sr
+        self._preview_pos = 0
+        self._preview_idx = idx
+        self._preview_paused = False
+        self._rebuild_playlist_ui()
+
+        def _callback(outdata, frames, time_info, status):
+            vol = self.vol_slider.get() / 100.0
+            remaining = len(self._preview_audio) - self._preview_pos
+            if remaining <= 0:
+                outdata[:] = 0
+                raise _sd.CallbackStop()
+            take = min(frames, remaining)
+            chunk = (self._preview_audio[self._preview_pos:self._preview_pos + take] * vol).astype(_np.float32)
+            outdata[:take, 0] = chunk
+            if outdata.shape[1] > 1:
+                outdata[:take, 1] = chunk
+            if take < frames:
+                outdata[take:] = 0
+            self._preview_pos += take
+
+        def _on_finished():
+            if getattr(self, "_preview_queue", None):
+                self._preview_queue.pop(0)
+            self.root.after(300, self._run_preview_queue)
+
+        try:
+            self._preview_stream = _sd.OutputStream(
+                samplerate=sr, channels=2, dtype="float32",
+                callback=_callback, finished_callback=_on_finished,
+            )
+            self._preview_stream.start()
+        except Exception as exc:
+            logger.error("Play Selected stream error: %s", exc)
+
+    def _play_current_item(self, advance_fn=None):
         """Generate and play the current playlist item."""
         if self._current_playing < 0 or self._current_playing >= len(self._playlist_items):
             self._is_playing = False
@@ -1354,13 +1845,18 @@ class FishTalkUI:
         self.tts_status.configure(text=f"Generating: {item['name']}...")
         self._rebuild_playlist_ui()
 
-        # Get voice profile
-        voice_name = self.tts_voice_var.get()
+        # Use per-item voice, fall back to global selector
+        voice_name = item.get("voice") or self.tts_voice_var.get()
         profile = None
         if voice_name != "Default (Random)":
             profile = self.voices.get_voice(voice_name)
 
         speed = self.speed_slider.get()
+
+        # Compute a deterministic output path in our managed temp folder.
+        os.makedirs(AUDIO_TEMP_DIR, exist_ok=True)
+        safe_stem = re.sub(r"[^\w\-]", "_", os.path.splitext(item["name"])[0])
+        _output_path = os.path.join(AUDIO_TEMP_DIR, f"{safe_stem}_{int(time.time())}.wav")
 
         def on_progress(status, frac):
             self.root.after(0, lambda: self.tts_progress.set(frac))
@@ -1416,28 +1912,67 @@ class FishTalkUI:
             _sample_queue.put(chunk_np.astype(_np.float32))
 
         def on_complete(wav_path):
+            # Store for preview button and manual Save MP3
+            item["audio_path"] = wav_path
+            self._last_wav_path = wav_path
             _sample_queue.put(_SENTINEL)
             def _finish():
                 import time as _t
-                # Wait until the audio thread consumes everything in the queue
-                while not _sample_queue.empty():
-                    _t.sleep(0.1)
-                
-                # Give it a moment to finish playing the final buffer
-                _t.sleep(0.5)
-                
+                if self.silent_mode_var.get() or _stream[0] is None:
+                    # Silent mode (or stream never started): nothing is consuming
+                    # the queue so drain it ourselves to avoid an infinite wait.
+                    while not _sample_queue.empty():
+                        try:
+                            _sample_queue.get_nowait()
+                        except Exception:
+                            break
+                else:
+                    # Wait until the audio stream callback consumes everything
+                    while not _sample_queue.empty():
+                        _t.sleep(0.1)
+                    # Give it a moment to finish playing the final buffer
+                    _t.sleep(0.5)
+
                 if _stream[0]:
                     try:
                         _stream[0].stop()
                         _stream[0].close()
                     except Exception:
                         pass
-                self.root.after(0, lambda: self.tts_status.configure(
-                    text=f"✅ Done: {self._playlist_items[self._current_playing]['name']}"
-                ))
+
+                # Auto-save to outputs/<stem>/<stem>.mp3 if toggle is on
+                if self.auto_save_var.get() and wav_path and os.path.isfile(wav_path):
+                    try:
+                        stem = os.path.splitext(item["name"])[0]
+                        out_dir = os.path.join(APP_DIR, "outputs", stem)
+                        os.makedirs(out_dir, exist_ok=True)
+                        out_mp3 = os.path.join(out_dir, stem + ".mp3")
+                        export_mp3(wav_path, out_mp3)
+                        logger.info("Auto-saved: %s", out_mp3)
+                        # Point preview to the MP3 and delete the temp WAV
+                        item["audio_path"] = out_mp3
+                        self._last_wav_path = None
+                        self._delete_temp_wav(wav_path)
+                        self.root.after(0, lambda p=out_mp3: self.tts_status.configure(
+                            text=f"✅ Saved: outputs/{stem}/{stem}.mp3"
+                        ))
+                    except Exception as _e:
+                        logger.error("Auto-save failed: %s", _e)
+                        self.root.after(0, lambda e=_e: self.tts_status.configure(
+                            text=f"⚠️ Auto-save failed: {e}"
+                        ))
+                else:
+                    self.root.after(0, lambda: self.tts_status.configure(
+                        text=f"✅ Done: {self._playlist_items[self._current_playing]['name']}"
+                    ))
+
                 self.root.after(0, lambda: self.tts_progress.set(1.0))
-                self._current_playing += 1
-                self.root.after(500, self._play_current_item)
+                self.root.after(0, self._rebuild_playlist_ui)
+                if advance_fn:
+                    self.root.after(300, advance_fn)
+                else:
+                    self._current_playing += 1
+                    self.root.after(500, self._play_current_item)
             threading.Thread(target=_finish, daemon=True).start()
 
         def on_error(exc):
@@ -1451,11 +1986,13 @@ class FishTalkUI:
         _is_kokoro_mode = getattr(self.settings, 'engine', 'fish14') == 'kokoro'
 
         if _is_kokoro_mode:
-            voice_id = KOKORO_VOICES.get(voice_name, DEFAULT_VOICE)
+            # voice_name may be display name or raw ID — handle both
+            voice_id = KOKORO_VOICES.get(voice_name, voice_name if voice_name in KOKORO_VOICES.values() else DEFAULT_VOICE)
             self.tts.generate(
                 text=item["text"],
                 voice_id=voice_id,
                 speed=speed,
+                output_path=_output_path,
                 on_progress=on_progress,
                 on_chunk=on_chunk,
                 on_complete=on_complete,
@@ -1468,6 +2005,7 @@ class FishTalkUI:
                 reference_tokens=None,
                 prompt_text=profile["prompt_text"] if profile else None,
                 speed=speed,
+                output_path=_output_path,
                 on_progress=on_progress,
                 on_chunk=on_chunk,
                 on_complete=on_complete,
@@ -1543,6 +2081,7 @@ class FishTalkUI:
 
     def _tts_stop(self):
         """Stop playback and cancel any pending generation."""
+        self._stop_preview()
         self._is_playing = False
         self._is_paused = False
         self._current_playing = -1
@@ -1565,6 +2104,11 @@ class FishTalkUI:
             )
             return
 
+        src = self._last_wav_path
+        if not src or not os.path.isfile(src):
+            messagebox.showinfo("FishTalk", "No audio to export. Generate speech first.")
+            return
+
         path = filedialog.asksaveasfilename(
             title="Save as MP3",
             defaultextension=".mp3",
@@ -1574,22 +2118,14 @@ class FishTalkUI:
         if not path:
             return
 
-        # Find the most recent temp wav
-        import glob
-        import tempfile
-        wavs = sorted(
-            glob.glob(os.path.join(tempfile.gettempdir(), "fishtalk_tts_*.wav")),
-            key=os.path.getmtime,
-            reverse=True,
-        )
-        if wavs:
-            try:
-                export_mp3(wavs[0], path)
-                messagebox.showinfo("FishTalk", f"Saved to:\n{path}")
-            except Exception as exc:
-                messagebox.showerror("Error", f"Export failed:\n{exc}")
-        else:
-            messagebox.showinfo("FishTalk", "No audio to export. Generate speech first.")
+        try:
+            export_mp3(src, path)
+            # Remove temp WAV now that it has been permanently saved
+            self._delete_temp_wav(src)
+            self._last_wav_path = None
+            messagebox.showinfo("FishTalk", f"Saved to:\n{path}")
+        except Exception as exc:
+            messagebox.showerror("Error", f"Export failed:\n{exc}")
 
     # ==================================================================
     # EVENT HANDLERS — STT Tab
@@ -1793,18 +2329,60 @@ class FishTalkUI:
             messagebox.showwarning("FishTalk", f"Voice '{name}' already exists.")
             return
 
-        try:
-            tts = self.tts if self.tts.is_loaded else None
-            self.voices.clone_voice(
-                name=name,
-                reference_wav_path=path,
-                tts_engine=tts,
-                prompt_text="",
-            )
-            self._refresh_voice_grid()
-            messagebox.showinfo("FishTalk", f"Voice '{name}' created successfully!")
-        except Exception as exc:
-            messagebox.showerror("Error", f"Voice cloning failed:\n{exc}")
+        # Auto-transcribe the reference audio so Fish Speech gets proper text
+        # context for voice conditioning (empty transcript = poor clone quality).
+        def _do_clone(transcript: str):
+            try:
+                tts = self.tts if self.tts.is_loaded else None
+                self.voices.clone_voice(
+                    name=name,
+                    reference_wav_path=path,
+                    tts_engine=tts,
+                    prompt_text=transcript,
+                )
+                self.root.after(0, self._refresh_voice_grid)
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "FishTalk", f"Voice '{name}' created successfully!"
+                    + (f"\n\nTranscript saved:\n\"{transcript[:120]}{'…' if len(transcript) > 120 else ''}\"" if transcript else "")
+                ))
+            except Exception as exc:
+                self.root.after(0, lambda e=exc: messagebox.showerror(
+                    "Error", f"Voice cloning failed:\n{e}"
+                ))
+
+        def _transcribe_and_clone():
+            transcript_result = [None]
+            done = threading.Event()
+
+            def _on_transcript(text, _info):
+                transcript_result[0] = text.strip()
+                done.set()
+
+            def _on_stt_error(_exc):
+                logger.warning("STT transcription failed during voice clone: %s", _exc)
+                transcript_result[0] = ""
+                done.set()
+
+            def _on_stt_ready():
+                self.stt.transcribe(
+                    audio_path=path,
+                    on_complete=_on_transcript,
+                    on_error=_on_stt_error,
+                )
+                done.wait(timeout=120)
+                _do_clone(transcript_result[0] or "")
+
+            if self.stt.is_loaded:
+                _on_stt_ready()
+            else:
+                # Load Whisper first, then transcribe
+                self.stt.load_model(on_ready=_on_stt_ready, on_error=_on_stt_error)
+                done.wait(timeout=180)
+
+        self.root.after(0, lambda: self.tts_status.configure(
+            text="Transcribing reference audio for voice conditioning…"
+        ))
+        threading.Thread(target=_transcribe_and_clone, daemon=True, name="VoiceClone").start()
 
     def _voice_delete(self, name: str):
         """Delete a voice profile."""
@@ -2018,44 +2596,131 @@ class FishTalkUI:
         self.settings.save()
 
     def _on_engine_select(self, new_val: str):
-        """Update the active AI engine and prompt restart."""
-        app_dir = os.path.dirname(os.path.abspath(__file__))
+        """Update the active AI engine, downloading models if needed, then restart."""
+        from utils import is_fish_speech_ready, setup_fish_speech, is_kokoro_ready, setup_kokoro
 
-        # Helper: display name for current saved engine
-        def _current_label():
-            _eng = getattr(self.settings, 'engine', 'fish14')
-            if _eng == 'kokoro':
-                return "Kokoro — Fast CPU (Preset Voices)"
-            if _eng == 'fish15':
-                return "Fish-Speech 1.5 — Best Quality (Cloning)"
-            return "Fish-Speech 1.4 — Smallest (Cloning)"
-
+        # Determine which engine was chosen
         if "Kokoro" in new_val:
-            self.settings.engine = 'kokoro'
+            new_engine = "kokoro"
+            fs_version = None
         elif "1.5" in new_val:
-            self.settings.fish_speech_path = os.path.join(app_dir, "fish-speech-1.5")
+            new_engine = "fish15"
+            fs_version = "1.5"
+        else:
+            new_engine = "fish14"
+            fs_version = "1.4"
+
+        # No change
+        if new_engine == getattr(self.settings, 'engine', 'kokoro'):
+            return
+
+        # Save engine choice immediately
+        if new_engine == "kokoro":
+            self.settings.engine = 'kokoro'
+        elif new_engine == "fish15":
+            self.settings.fish_speech_path = os.path.join(APP_DIR, "fish-speech-1.5")
             self.settings.checkpoint_name = "checkpoints/fish-speech-1.5"
             self.settings.engine = 'fish15'
         else:
-            self.settings.fish_speech_path = os.path.join(app_dir, "fish-speech")
+            self.settings.fish_speech_path = os.path.join(APP_DIR, "fish-speech")
             self.settings.checkpoint_name = "checkpoints/fish-speech-1.4"
             self.settings.engine = 'fish14'
-
         self.settings.save()
 
-        confirm = messagebox.askyesno(
-            "Engine Restart Required",
-            f"Switched to: {new_val}\n\n"
-            "FishTalk needs to restart to load the new engine.\n\n"
-            "Restart now?",
-        )
+        # For Fish Speech, check if models are present and download if not
+        if fs_version and not is_fish_speech_ready(fs_version):
+            download = messagebox.askyesno(
+                "Download Required",
+                f"Fish-Speech {fs_version} models are not installed (~1.5 GB).\n\n"
+                "Download now? FishTalk will restart when complete.",
+            )
+            if not download:
+                # Revert setting
+                self.settings.engine = getattr(self.settings, '_prev_engine', 'kokoro')
+                self.settings.save()
+                self._update_engine_dropdown()
+                return
 
+            # Show download progress in status bar and run in background
+            dest = os.path.join(APP_DIR, "fish-speech" if fs_version == "1.4" else "fish-speech-1.5")
+
+            def _on_progress(msg, _frac=None):
+                self.root.after(0, lambda m=msg: self.update_tts_status(f"⬇ {m}", COLORS["warning"]))
+
+            def _download():
+                ok = setup_fish_speech(dest_dir=dest, on_progress=_on_progress, version=fs_version)
+                if ok:
+                    self.root.after(0, lambda: self.update_tts_status(
+                        f"✅ Fish-Speech {fs_version} ready — restarting…", COLORS["success"]
+                    ))
+                    self.root.after(1500, self._restart_app)
+                else:
+                    self.root.after(0, lambda: self.update_tts_status(
+                        f"❌ Download failed — check your connection", COLORS["danger"]
+                    ))
+                    self.root.after(0, self._update_engine_dropdown)
+
+            threading.Thread(target=_download, daemon=True, name="FishDownload").start()
+            return
+
+        # For Kokoro, check if model files are present and download if not
+        if new_engine == "kokoro" and not is_kokoro_ready():
+            download = messagebox.askyesno(
+                "Download Required",
+                "Kokoro model files are not installed (~330 MB).\n\n"
+                "Download now? FishTalk will restart when complete.",
+            )
+            if not download:
+                self.settings.engine = getattr(self.settings, '_prev_engine', 'fish14')
+                self.settings.save()
+                self._update_engine_dropdown()
+                return
+
+            def _on_progress(msg, _frac=None):
+                self.root.after(0, lambda m=msg: self.update_tts_status(f"⬇ {m}", COLORS["warning"]))
+
+            def _download_kokoro():
+                ok = setup_kokoro(on_progress=_on_progress)
+                if ok:
+                    self.root.after(0, lambda: self.update_tts_status(
+                        "✅ Kokoro models ready — restarting…", COLORS["success"]
+                    ))
+                    self.root.after(1500, self._restart_app)
+                else:
+                    self.root.after(0, lambda: self.update_tts_status(
+                        "❌ Download failed — check your connection", COLORS["danger"]
+                    ))
+                    self.root.after(0, self._update_engine_dropdown)
+
+            threading.Thread(target=_download_kokoro, daemon=True, name="KokoroDownload").start()
+            return
+
+        # Models present — just restart
+        confirm = messagebox.askyesno(
+            "Restart Required",
+            f"Switched to: {new_val}\n\nFishTalk needs to restart to load the new engine.\n\nRestart now?",
+        )
         if confirm:
-            import sys
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            self._restart_app()
         else:
-            # Revert dropdown visually (settings already saved — will take effect on next restart)
-            self.engine_var.set(_current_label())
+            self._update_engine_dropdown()
+
+    def _restart_app(self):
+        """Save settings and restart the process."""
+        self.settings.save()
+        import sys
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    def _update_engine_dropdown(self):
+        """Revert the engine dropdown to match the saved setting."""
+        _eng = getattr(self.settings, 'engine', 'kokoro')
+        if _eng == 'kokoro':
+            label = "Kokoro — Fast(best) No Cloning (1-2Gb Ram)"
+        elif _eng == 'fish15':
+            label = "Fish-Speech 1.5 — High W/Cloning (8+Gb Ram)"
+        else:
+            label = "Fish-Speech 1.4 — Medium W/Cloning (1-4Gb Ram)"
+        self.engine_var.set(label)
 
 
     def _browse_fish_path(self):

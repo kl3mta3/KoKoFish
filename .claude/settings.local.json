@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /c/Users/Kenny/source/repos/Fishtalk/*.py)"
+    ]
+  }
+}

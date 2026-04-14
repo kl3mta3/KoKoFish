@@ -149,18 +149,103 @@ def is_ffmpeg_available() -> bool:
 # Fish-Speech auto-setup
 # ---------------------------------------------------------------------------
 
-def setup_fish_speech(dest_dir: str, on_progress=None) -> bool:
+def is_kokoro_ready() -> bool:
+    """Return True if both Kokoro ONNX model files are present."""
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    model_dir = os.path.join(app_dir, "kokoro_models")
+    return (
+        os.path.isfile(os.path.join(model_dir, "kokoro-v1.0.int8.onnx")) and
+        os.path.isfile(os.path.join(model_dir, "voices-v1.0.bin"))
+    )
+
+
+def setup_kokoro(on_progress=None) -> bool:
     """
-    Ensure Fish-Speech v1.4.3 code and model checkpoints are present.
+    Download Kokoro ONNX model files from HuggingFace if missing.
+
+    Files: kokoro-v1.0.int8.onnx (~310 MB) and voices-v1.0.bin (~20 MB)
+    from hexgrad/Kokoro-82M.
+
+    on_progress(message, fraction) is called throughout.
+    Returns True if models are ready, False on failure.
+    """
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    model_dir = os.path.join(app_dir, "kokoro_models")
+    os.makedirs(model_dir, exist_ok=True)
+
+    files = [
+        ("kokoro-v1.0.int8.onnx", "onnx/kokoro-v1.0.int8.onnx"),
+        ("voices-v1.0.bin", "voices-v1.0.bin"),
+    ]
+
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError:
+        logger.error("huggingface_hub not installed; cannot download Kokoro models.")
+        return False
+
+    for i, (local_name, repo_path) in enumerate(files):
+        dest = os.path.join(model_dir, local_name)
+        if os.path.isfile(dest):
+            continue
+        frac_base = i / len(files)
+        if on_progress:
+            on_progress(f"Downloading Kokoro {local_name}…", frac_base + 0.05)
+        try:
+            logger.info("Downloading Kokoro model: %s", repo_path)
+            hf_hub_download(
+                repo_id="hexgrad/Kokoro-82M",
+                filename=repo_path,
+                local_dir=model_dir,
+                local_dir_use_symlinks=False,
+            )
+            # hf_hub_download saves into a subfolder matching repo_path structure;
+            # move it to the flat model_dir if needed.
+            downloaded = os.path.join(model_dir, repo_path)
+            if os.path.isfile(downloaded) and downloaded != dest:
+                import shutil as _shutil
+                _shutil.move(downloaded, dest)
+            logger.info("Kokoro model saved: %s", dest)
+        except Exception as exc:
+            logger.error("Kokoro model download failed (%s): %s", local_name, exc)
+            return False
+
+    if on_progress:
+        on_progress("Kokoro models ready", 1.0)
+    return is_kokoro_ready()
+
+
+def is_fish_speech_ready(version: str = "1.4") -> bool:
+    """Return True if the Fish-Speech code and checkpoints for version are present."""
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    if version == "1.5":
+        code_dir = os.path.join(app_dir, "fish-speech-1.5")
+        ckpt_dir = os.path.join(code_dir, "checkpoints", "fish-speech-1.5")
+    else:
+        code_dir = os.path.join(app_dir, "fish-speech")
+        ckpt_dir = os.path.join(code_dir, "checkpoints", "fish-speech-1.4")
+
+    if not os.path.isdir(code_dir) or not os.listdir(code_dir):
+        return False
+    if not os.path.isdir(ckpt_dir):
+        return False
+    return any(
+        f.endswith((".pth", ".bin", ".safetensors"))
+        for f in os.listdir(ckpt_dir)
+    )
+
+
+def setup_fish_speech(dest_dir: str, on_progress=None, version: str = "1.4") -> bool:
+    """
+    Ensure Fish-Speech code and model checkpoints are present for the given version.
+
+    version: "1.4" or "1.5"
 
     If the dest_dir does not exist or is empty:
-      1. Downloads the v1.4.3 source zip from GitHub (~20 MB).
-      2. Downloads the checkpoint files from HuggingFace
-         (fishaudio/fish-speech-1.4, ~1.5 GB).
+      1. Downloads the source zip from GitHub (~20 MB).
+      2. Downloads only the requested checkpoint from HuggingFace (~1.5 GB).
 
-    on_progress(message, fraction) is called throughout so the splash screen
-    can show download progress.
-
+    on_progress(message, fraction) is called throughout.
     Returns True if fish-speech is ready, False on failure.
     """
     import urllib.request
@@ -216,11 +301,12 @@ def setup_fish_speech(dest_dir: str, on_progress=None) -> bool:
             logger.error("Fish-Speech code download failed: %s", exc)
             return False
 
-    # --- Step 2: Model checkpoints ---
-    checkpoint_sets = [
-        ("fish-speech-1.4", "fishaudio/fish-speech-1.4"),
-        ("fish-speech-1.5", "fishaudio/fish-speech-1.5"),
-    ]
+    # --- Step 2: Model checkpoints (only the requested version) ---
+    ckpt_map = {
+        "1.4": ("fish-speech-1.4", "fishaudio/fish-speech-1.4"),
+        "1.5": ("fish-speech-1.5", "fishaudio/fish-speech-1.5"),
+    }
+    checkpoint_sets = [ckpt_map.get(version, ckpt_map["1.4"])]
 
     for ckpt_name, hf_repo in checkpoint_sets:
         ckpt_dir = os.path.join(dest_dir, "checkpoints", ckpt_name)
@@ -259,6 +345,147 @@ def setup_fish_speech(dest_dir: str, on_progress=None) -> bool:
     return True
 
 
+
+
+# ---------------------------------------------------------------------------
+# Text normalization
+# ---------------------------------------------------------------------------
+
+def normalize_text(text: str) -> str:
+    """
+    Normalize text before TTS to improve pronunciation and quality.
+
+    - Converts numbers to words (requires num2words)
+    - Expands common abbreviations
+    - Strips URLs and problematic characters
+    """
+    import re
+
+    # 1. Strip URLs
+    text = re.sub(r'https?://\S+|www\.\S+', '', text)
+
+    # 2. Common abbreviations — order matters (longer matches first)
+    abbrevs = [
+        (r'\bDr\.(?=\s)', 'Doctor'),
+        (r'\bMr\.(?=\s)', 'Mister'),
+        (r'\bMrs\.(?=\s)', 'Missus'),
+        (r'\bMs\.(?=\s)', 'Miss'),
+        (r'\bProf\.(?=\s)', 'Professor'),
+        (r'\bSgt\.(?=\s)', 'Sergeant'),
+        (r'\bCpt\.(?=\s)', 'Captain'),
+        (r'\bLt\.(?=\s)', 'Lieutenant'),
+        (r'\bSt\.(?=\s)', 'Saint'),
+        (r'\bAve\.', 'Avenue'),
+        (r'\bBlvd\.', 'Boulevard'),
+        (r'\bvs\.', 'versus'),
+        (r'\betc\.', 'etcetera'),
+        (r'\be\.g\.', 'for example'),
+        (r'\bi\.e\.', 'that is'),
+    ]
+    for pattern, replacement in abbrevs:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+    # 3. Numbers to words
+    try:
+        from num2words import num2words
+
+        def _replace_number(m):
+            raw = m.group(0).replace(',', '')
+            try:
+                if '.' in raw:
+                    return num2words(float(raw))
+                return num2words(int(raw))
+            except Exception:
+                return m.group(0)
+
+        # Match numbers with optional thousands-commas (e.g. 1,234 or 3.14)
+        text = re.sub(r'\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\b|\b\d+(?:\.\d+)?\b',
+                      _replace_number, text)
+    except ImportError:
+        pass  # num2words not installed; skip silently
+
+    # 4. Collapse whitespace
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
+# ---------------------------------------------------------------------------
+# Reference audio pre-processing
+# ---------------------------------------------------------------------------
+
+def preprocess_reference_audio(wav_path: str, denoise: bool = True) -> str:
+    """
+    Clean up a reference audio clip for better voice cloning quality.
+
+    Steps applied:
+      1. Convert to mono 16-bit PCM
+      2. Trim leading/trailing silence (threshold -40 dBFS, 150 ms padding)
+      3. Normalize peak volume to -1 dBFS
+      4. Optional light denoising via noisereduce (stationary noise only)
+
+    Returns the path to a processed temp WAV (caller should delete when done).
+    If pydub is unavailable the original path is returned unchanged.
+    """
+    import tempfile
+    import os
+
+    try:
+        from pydub import AudioSegment
+        from pydub.silence import detect_leading_silence
+        from pydub.effects import normalize
+    except ImportError:
+        logger.warning("pydub not available; skipping reference audio preprocessing.")
+        return wav_path
+
+    try:
+        audio = AudioSegment.from_file(wav_path)
+
+        # Mono
+        if audio.channels > 1:
+            audio = audio.set_channels(1)
+
+        # Trim silence
+        start_trim = detect_leading_silence(audio, silence_threshold=-40)
+        end_trim   = detect_leading_silence(audio.reverse(), silence_threshold=-40)
+        duration   = len(audio)
+        if start_trim + end_trim < duration:
+            pad = 150  # ms of silence to keep at each end
+            audio = audio[max(0, start_trim - pad): duration - max(0, end_trim - pad)]
+
+        # Normalize volume
+        audio = normalize(audio)
+
+        # Optional denoise
+        if denoise:
+            try:
+                import numpy as np
+                import noisereduce as nr
+
+                samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
+                sr = audio.frame_rate
+                reduced = nr.reduce_noise(y=samples, sr=sr, stationary=True, prop_decrease=0.75)
+                reduced_int16 = np.clip(reduced, -32768, 32767).astype(np.int16)
+                audio = AudioSegment(
+                    reduced_int16.tobytes(),
+                    frame_rate=sr,
+                    sample_width=2,
+                    channels=1,
+                )
+            except ImportError:
+                pass  # noisereduce not installed; skip
+            except Exception as exc:
+                logger.warning("Denoising failed (non-fatal): %s", exc)
+
+        # Write to temp file
+        tmp_path = tempfile.mktemp(suffix="_ref_processed.wav")
+        audio.export(tmp_path, format="wav")
+        logger.info("Reference audio preprocessed: %s -> %s", wav_path, tmp_path)
+        return tmp_path
+
+    except Exception as exc:
+        logger.warning("Reference audio preprocessing failed (non-fatal): %s", exc)
+        return wav_path  # Fall back to original
 
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ logger = logging.getLogger("FishTalk.settings")
 DEFAULTS = {
     "fish_speech_path": "",  # Auto-detected at startup
     "checkpoint_name": "checkpoints/fish-speech-1.4",
-    "engine": "fish14",          # "fish14" | "fish15" | "kokoro"
+    "engine": "kokoro",           # "fish14" | "fish15" | "kokoro"
     "kokoro_voice": "af_bella",  # Active Kokoro preset voice ID
     "use_cuda": False,
     "memory_saver": False,
@@ -27,6 +27,11 @@ DEFAULTS = {
     "volume": 80,
     "cadence": 50,
     "window_geometry": "1280x800",
+    # TTS generation quality parameters
+    "tts_temperature": 0.7,
+    "tts_top_p": 0.7,
+    "tts_repetition_penalty": 1.2,
+    "tts_chunk_length": 150,
 }
 
 

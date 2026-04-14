@@ -311,6 +311,10 @@ class KokoroEngine:
             try:
                 import numpy as np
                 import soundfile as sf
+                from utils import normalize_text
+
+                # Normalize text before synthesis
+                text = normalize_text(text)
 
                 if not self.is_loaded:
                     if on_progress:

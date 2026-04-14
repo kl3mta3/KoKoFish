@@ -123,29 +123,38 @@ class VoiceManager:
         profile_dir = os.path.join(self.voices_dir, safe_name)
         os.makedirs(profile_dir, exist_ok=True)
 
-        # Process and convert reference audio to standard WAV
+        # Pre-process reference audio: denoise, normalize, trim silence, then save
         dest_wav = os.path.join(profile_dir, "reference.wav")
         try:
+            from utils import preprocess_reference_audio
             from pydub import AudioSegment
-            # Automatically parses mp3, wav, flac, etc. and exports a clean wave.
+
+            # First pass: format conversion + 180s trim
             audio = AudioSegment.from_file(reference_wav_path)
-            
-            # Fish-Speech supports up to 180 seconds for voice cloning.
-            # Warning: Very long audio clips require significantly more VRAM on the GPU!
             if len(audio) > 180000:
-                logger.info(f"Audio is {len(audio)/1000}s long. Trimming to first 180 seconds.")
+                logger.info("Audio is %.1fs — trimming to first 180s.", len(audio) / 1000)
                 audio = audio[:180000]
-            
-            # Fish-Speech prefers standard sample rates, pydub will preserve it
-            # but we force the format to "wav"
-            audio.export(dest_wav, format="wav")
-            logger.info("Processed and saved reference WAV to: %s", dest_wav)
+            tmp_wav = dest_wav + ".tmp.wav"
+            audio.export(tmp_wav, format="wav")
+
+            # Second pass: normalize + trim silence + denoise
+            processed = preprocess_reference_audio(tmp_wav, denoise=True)
+            if processed != tmp_wav:
+                import shutil as _shutil
+                _shutil.move(processed, dest_wav)
+                try:
+                    os.remove(tmp_wav)
+                except OSError:
+                    pass
+            else:
+                os.replace(tmp_wav, dest_wav)
+
+            logger.info("Preprocessed reference WAV saved: %s", dest_wav)
         except ImportError:
-            # Fallback if pydub isn't installed
             shutil.copy2(reference_wav_path, dest_wav)
-            logger.info("Copied reference WAV to: %s", dest_wav)
+            logger.info("Copied reference WAV (no preprocessing): %s", dest_wav)
         except Exception as e:
-            logger.error("Audio conversion failed: %s. Rolling back.", e)
+            logger.error("Audio processing failed: %s. Rolling back.", e)
             shutil.rmtree(profile_dir)
             raise ValueError(f"Could not process audio file: {e}")
 

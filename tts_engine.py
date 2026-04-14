@@ -50,6 +50,12 @@ class TTSEngine:
         self._worker_thread: Optional[threading.Thread] = None
         self._precision = None
 
+        # Generation quality params — updated live from UI settings
+        self.temperature = 0.7
+        self.top_p = 0.7
+        self.repetition_penalty = 1.2
+        self.chunk_length = 150
+
         # Ensure fish-speech is on sys.path
         if fish_speech_path and fish_speech_path not in sys.path:
             sys.path.insert(0, fish_speech_path)
@@ -195,6 +201,24 @@ class TTSEngine:
                 with self._lock:
                     self._codec = codec
 
+                # torch.compile() — speeds up repeated inference calls.
+                # Works on both CPU and CUDA (PyTorch 2.0+). The first call
+                # after loading will be slower while it JIT-compiles; all
+                # subsequent calls benefit. Guarded so it never breaks loading.
+                if hasattr(torch, "compile"):
+                    try:
+                        if on_progress:
+                            on_progress("Optimizing model (torch.compile)...", 0.85)
+                        with self._lock:
+                            self._codec = torch.compile(
+                                self._codec,
+                                mode="reduce-overhead",
+                                fullgraph=False,
+                            )
+                        logger.info("torch.compile() applied to codec.")
+                    except Exception as _ce:
+                        logger.warning("torch.compile() skipped: %s", _ce)
+
                 if on_progress:
                     on_progress("TTS engine ready!", 1.0)
 
@@ -241,7 +265,8 @@ class TTSEngine:
         Encode a reference WAV file to VQ tokens for zero-shot cloning.
 
         Args:
-            wav_path: Path to reference .wav file (15-30 seconds recommended).
+            wav_path: Path to reference .wav file. Fish Speech supports up to
+                      210s; longer clips give better cloning but use more RAM.
 
         Returns:
             numpy array of VQ token indices.
@@ -314,6 +339,7 @@ class TTSEngine:
             try:
                 import torch
                 import torchaudio
+                from utils import normalize_text, preprocess_reference_audio
                 try:
                     from tools.llama.generate import generate_long
                 except ImportError:
@@ -323,13 +349,25 @@ class TTSEngine:
                 if on_progress:
                     on_progress("Preparing generation...", 0.1)
 
+                # Normalize text before sending to the model
+                text = normalize_text(text)
+
                 # Prepare prompt tokens for voice cloning
                 prompt_tokens_list = None
                 prompt_text_list = None
 
+                # RAM-based cap on reference audio tokens. Fish Speech supports up to
+                # 210s of reference audio, but longer clips use more VRAM/RAM.
+                # Raise this value if you have headroom; must stay below model
+                # max_seq_len (4096) minus space for text context + new tokens.
+                MAX_PROMPT_TOKENS = 2048
+
                 if reference_wav and os.path.isfile(reference_wav):
                     logger.info("Using reference audio: %s", reference_wav)
-                    wav, sr = torchaudio.load(reference_wav)
+                    # Pre-process: normalize, trim silence, optional denoise
+                    _processed_ref = preprocess_reference_audio(reference_wav)
+                    _ref_is_temp = (_processed_ref != reference_wav)
+                    wav, sr = torchaudio.load(_processed_ref)
                     if wav.shape[0] > 1:
                         wav = wav.mean(dim=0, keepdim=True)
                     with self._lock:
@@ -339,10 +377,30 @@ class TTSEngine:
                         audios = wav.to(self.device).unsqueeze(0)
                         audio_lengths = torch.tensor([audios.shape[2]], device=self.device, dtype=torch.long)
                         tokens = self._codec.encode(audios, audio_lengths)[0][0]
+                    if tokens.shape[1] > MAX_PROMPT_TOKENS:
+                        logger.warning(
+                            "Reference audio encodes to %d tokens, exceeds RAM cap of %d. "
+                            "Truncating to first %d tokens. Raise MAX_PROMPT_TOKENS if you have the VRAM.",
+                            tokens.shape[1], MAX_PROMPT_TOKENS, MAX_PROMPT_TOKENS,
+                        )
+                        tokens = tokens[:, :MAX_PROMPT_TOKENS]
                     prompt_tokens_list = [tokens.to(self.device)]
                     prompt_text_list = [prompt_text or ""]
+                    # Delete the preprocessed temp file now that it's encoded
+                    if _ref_is_temp:
+                        try:
+                            os.remove(_processed_ref)
+                        except OSError:
+                            pass
                 elif reference_tokens is not None:
-                    prompt_tokens_list = [torch.from_numpy(reference_tokens).to(self.device)]
+                    ref_tensor = torch.from_numpy(reference_tokens).to(self.device)
+                    if ref_tensor.shape[1] > MAX_PROMPT_TOKENS:
+                        logger.warning(
+                            "Reference tokens too long (%d), truncating to %d.",
+                            ref_tensor.shape[1], MAX_PROMPT_TOKENS,
+                        )
+                        ref_tensor = ref_tensor[:, :MAX_PROMPT_TOKENS]
+                    prompt_tokens_list = [ref_tensor]
                     prompt_text_list = [prompt_text or ""]
 
                 if self._cancel_event.is_set():
@@ -352,7 +410,13 @@ class TTSEngine:
                     on_progress("Generating speech...", 0.3)
 
                 # Run generation via v1.4.3 generate_long
-                all_codes = []
+                # Accumulate decoded audio chunks rather than raw codes so we never
+                # hold the entire chapter's VQ codes in memory or run a single
+                # giant decode at the end (avoids OOM on long chapters).
+                audio_chunks = []
+                # Use the model's full context window so the rolling prior-context
+                # budget (max_length - 1024 - prompt_tokens) is as large as possible.
+                max_seq_len = self._model.config.max_seq_len
                 with self._lock:
                     generator = generate_long(
                         model=self._model,
@@ -361,12 +425,13 @@ class TTSEngine:
                         text=text,
                         num_samples=1,
                         max_new_tokens=0,
-                        top_p=0.9,
-                        repetition_penalty=1.5,
-                        temperature=0.7,
+                        top_p=self.top_p,
+                        repetition_penalty=self.repetition_penalty,
+                        temperature=self.temperature,
                         compile=False,
                         iterative_prompt=True,
-                        chunk_length=300,
+                        max_length=max_seq_len,
+                        chunk_length=int(self.chunk_length),
                         prompt_text=prompt_text_list,
                         prompt_tokens=prompt_tokens_list,
                     )
@@ -377,46 +442,38 @@ class TTSEngine:
                             return
 
                         if response.action == "sample":
-                            all_codes.append(response.codes)
                             if on_progress:
                                 on_progress("Generating speech...", 0.6)
 
-                            # Decode this chunk immediately for streaming playback
-                            if on_chunk:
-                                try:
-                                    chunk_codes = response.codes.to(self.device)
-                                    chunk_lengths = torch.tensor(
-                                        [chunk_codes.shape[1]], device=self._codec.device
-                                    )
-                                    with torch.no_grad():
-                                        chunk_audio = self._codec.decode(
-                                            indices=chunk_codes[None],
-                                            feature_lengths=chunk_lengths,
-                                        )[0].squeeze()
-                                    chunk_np = chunk_audio.cpu().detach().float().numpy()
+                            # Decode each chunk immediately — used for both
+                            # streaming playback and final file assembly.
+                            try:
+                                chunk_codes = response.codes.to(self.device)
+                                chunk_lengths = torch.tensor(
+                                    [chunk_codes.shape[1]], device=self._codec.device
+                                )
+                                with torch.no_grad():
+                                    chunk_audio = self._codec.decode(
+                                        indices=chunk_codes[None],
+                                        feature_lengths=chunk_lengths,
+                                    )[0].squeeze()
+                                chunk_np = chunk_audio.cpu().detach().float().numpy()
+                                audio_chunks.append(chunk_np)
+                                if on_chunk:
                                     on_chunk(chunk_np, self._codec.spec_transform.sample_rate)
-                                except Exception as ce:
-                                    logger.warning("Chunk decode error (non-fatal): %s", ce)
+                            except Exception as ce:
+                                logger.warning("Chunk decode error (non-fatal): %s", ce)
 
                         elif response.action == "next":
                             break
 
-                if not all_codes:
-                    raise RuntimeError("No audio codes generated.")
+                if not audio_chunks:
+                    raise RuntimeError("No audio generated.")
 
                 if on_progress:
-                    on_progress("Decoding to audio...", 0.8)
+                    on_progress("Assembling audio...", 0.8)
 
-                # Decode full accumulated codes to audio for saving
-                merged_codes = torch.cat(all_codes, dim=1).to(self.device)
-                with torch.no_grad():
-                    feature_lengths = torch.tensor([merged_codes.shape[1]], device=self._codec.device)
-                    audio = self._codec.decode(
-                        indices=merged_codes[None],
-                        feature_lengths=feature_lengths,
-                    )[0].squeeze()
-
-                audio_np = audio.cpu().detach().float().numpy()
+                audio_np = np.concatenate(audio_chunks)
 
 
                 # Save output
@@ -436,7 +493,7 @@ class TTSEngine:
                     on_complete(output_path)
 
                 # Cleanup
-                del merged_codes, all_codes
+                del audio_chunks
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
@@ -478,6 +535,24 @@ class TTSEngine:
 
         def _worker():
             try:
+                # Pre-encode the reference audio once for the whole playlist.
+                # Without this, torchaudio.load + codec.encode would run for
+                # every item — very slow for large playlists.
+                ref_tokens = None
+                prompt_text_val = None
+
+                if voice_profile:
+                    tokens_path = voice_profile.get("tokens_path")
+                    wav_path = voice_profile.get("wav_path")
+                    prompt_text_val = voice_profile.get("prompt_text", "")
+
+                    if tokens_path and os.path.isfile(tokens_path):
+                        ref_tokens = np.load(tokens_path)
+                        logger.info("Playlist: loaded reference tokens from %s", tokens_path)
+                    elif wav_path and os.path.isfile(wav_path):
+                        logger.info("Playlist: encoding reference audio once from %s", wav_path)
+                        ref_tokens = self.encode_reference(wav_path)
+
                 for idx, item in enumerate(items):
                     if self._cancel_event.is_set():
                         break
@@ -500,22 +575,10 @@ class TTSEngine:
                         result["error"] = exc
                         done_event.set()
 
-                    ref_wav = None
-                    ref_tokens = None
-                    prompt_text = None
-
-                    if voice_profile:
-                        ref_wav = voice_profile.get("wav_path")
-                        tokens_path = voice_profile.get("tokens_path")
-                        if tokens_path and os.path.isfile(tokens_path):
-                            ref_tokens = np.load(tokens_path)
-                        prompt_text = voice_profile.get("prompt_text", "")
-
                     self.generate(
                         text=text,
-                        reference_wav=ref_wav,
                         reference_tokens=ref_tokens,
-                        prompt_text=prompt_text,
+                        prompt_text=prompt_text_val,
                         speed=speed,
                         on_progress=on_progress,
                         on_complete=_on_done,

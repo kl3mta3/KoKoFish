@@ -109,7 +109,7 @@ from settings import (
     validate_fish_speech_path,
     get_device,
 )
-from utils import setup_ffmpeg
+from utils import setup_ffmpeg, is_kokoro_ready, setup_kokoro
 from tts_engine import TTSEngine
 from kokoro_engine import KokoroEngine
 from stt_engine import STTEngine
@@ -320,43 +320,57 @@ class FishTalkApp:
                 update_splash("Checking FFmpeg...", 0.1)
                 setup_ffmpeg(on_progress=update_splash)
 
+                _engine = getattr(self.settings, 'engine', 'kokoro')
 
-                update_splash("Validating Fish-Speech...", 0.15)
-                # Determine the correct fish-speech path to use.
-                # Priority: saved setting > bundled `fish-speech` folder
-                saved_path = self.settings.fish_speech_path
-                bundled_14_path = os.path.join(APP_DIR, "fish-speech")
-                
-                if saved_path and os.path.isdir(saved_path):
-                    fs_path = saved_path
-                elif os.path.isdir(bundled_14_path):
-                    fs_path = bundled_14_path
-                    self.settings.fish_speech_path = fs_path
-                    self.settings.checkpoint_name = "checkpoints/fish-speech-1.4"
-                    self.settings.save()
-                    logger.info("Auto-resolved Fish-Speech path to bundled: %s", fs_path)
-                else:
-                    # Not found -- auto-download code + checkpoints
-                    update_splash("Fish-Speech not found. Downloading (~1.5 GB, one-time)...", 0.16)
-                    ok = setup_fish_speech(
-                        dest_dir=bundled_14_path,
-                        on_progress=update_splash,
-                    )
-                    fs_path = bundled_14_path
-                    if ok:
-                        self.settings.fish_speech_path = fs_path
-                        self.settings.checkpoint_name = "checkpoints/fish-speech-1.4"
-                        self.settings.save()
-                        logger.info("Fish-Speech auto-download complete: %s", fs_path)
+                if _engine == 'kokoro':
+                    if not is_kokoro_ready():
+                        update_splash("Downloading Kokoro models (~330 MB)…", 0.15)
+                        ok = setup_kokoro(on_progress=update_splash)
+                        if ok:
+                            logger.info("Kokoro models downloaded successfully.")
+                        else:
+                            logger.warning("Kokoro model download failed; engine may not load.")
                     else:
-                        logger.warning("Fish-Speech auto-download failed; engine may not work.")
-
-                result = validate_fish_speech_path(fs_path)
-                if result["valid"]:
-                    self.settings.fish_speech_path = fs_path
-                    logger.info("Fish-Speech path: %s", fs_path)
+                        update_splash("Kokoro engine ready.", 0.2)
+                        logger.info("Engine: Kokoro (models present)")
                 else:
-                    logger.warning("Fish-Speech not found at %s: %s", fs_path, result["message"])
+                    # Fish Speech — only validate/download the selected version.
+                    _fs_version = "1.5" if _engine == "fish15" else "1.4"
+                    update_splash(f"Validating Fish-Speech {_fs_version}...", 0.15)
+
+                    bundled_path = os.path.join(APP_DIR, "fish-speech" if _fs_version == "1.4" else "fish-speech-1.5")
+                    saved_path = self.settings.fish_speech_path
+
+                    if saved_path and os.path.isdir(saved_path):
+                        fs_path = saved_path
+                    elif os.path.isdir(bundled_path) and os.listdir(bundled_path):
+                        fs_path = bundled_path
+                        self.settings.fish_speech_path = fs_path
+                        self.settings.save()
+                        logger.info("Auto-resolved Fish-Speech path: %s", fs_path)
+                    else:
+                        # Not present — download now (user deliberately chose this engine)
+                        update_splash(f"Fish-Speech {_fs_version} not found. Downloading (~1.5 GB)...", 0.16)
+                        ok = setup_fish_speech(
+                            dest_dir=bundled_path,
+                            on_progress=update_splash,
+                            version=_fs_version,
+                        )
+                        fs_path = bundled_path
+                        if ok:
+                            self.settings.fish_speech_path = fs_path
+                            self.settings.checkpoint_name = f"checkpoints/fish-speech-{_fs_version}"
+                            self.settings.save()
+                            logger.info("Fish-Speech %s download complete: %s", _fs_version, fs_path)
+                        else:
+                            logger.warning("Fish-Speech %s download failed; engine may not work.", _fs_version)
+
+                    result = validate_fish_speech_path(fs_path)
+                    if result["valid"]:
+                        self.settings.fish_speech_path = fs_path
+                        logger.info("Fish-Speech path validated: %s", fs_path)
+                    else:
+                        logger.warning("Fish-Speech not found at %s: %s", fs_path, result["message"])
 
                 update_splash("Initializing voice manager...", 0.2)
                 # Ensure all engine voice subdirectories exist on every launch
