@@ -275,10 +275,28 @@ class KokoroEngine:
     # Generate
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def build_blend_voice(voice_id: str, blend_voice: str = "", blend_ratio: float = 0.5) -> str:
+        """
+        Construct a Kokoro voice blend string.
+
+        blend_ratio is the weight of voice_id (0.0–1.0).
+        e.g. voice_id="af_sky", blend_voice="af_nicole", blend_ratio=0.7
+             → "af_sky.7+af_nicole.3"
+        """
+        if not blend_voice or blend_voice == voice_id:
+            return voice_id
+        ratio = max(0.1, min(0.9, blend_ratio))
+        w1 = round(ratio * 10)
+        w2 = 10 - w1
+        return f"{voice_id}.{w1}+{blend_voice}.{w2}"
+
     def generate(
         self,
         text: str,
         voice_id: str = DEFAULT_VOICE,
+        blend_voice: str = "",
+        blend_ratio: float = 0.5,
         speed: float = 1.0,
         output_path: Optional[str] = None,
         on_chunk: Optional[Callable] = None,
@@ -313,8 +331,8 @@ class KokoroEngine:
                 import soundfile as sf
                 from utils import normalize_text
 
-                # Normalize text before synthesis
-                text = normalize_text(text)
+                # Normalize text — strip Fish Speech tags Kokoro doesn't understand
+                text = normalize_text(text, engine="kokoro")
 
                 if not self.is_loaded:
                     if on_progress:
@@ -324,13 +342,14 @@ class KokoroEngine:
                 if self._cancel_event.is_set():
                     return
 
-                # Validate voice ID
+                # Validate voice ID and build blend string if requested
                 available = self._kokoro.get_voices()
                 if voice_id not in available:
                     logger.warning("Voice '%s' not found, using %s", voice_id, DEFAULT_VOICE)
-                    vid = DEFAULT_VOICE if DEFAULT_VOICE in available else available[0]
-                else:
-                    vid = voice_id
+                    voice_id = DEFAULT_VOICE if DEFAULT_VOICE in available else available[0]
+
+                vid = self.build_blend_voice(voice_id, blend_voice, blend_ratio)
+                logger.info("Kokoro voice: %s", vid)
 
                 # Split into sentences for real-time streaming
                 sentences = self._split_sentences(text)

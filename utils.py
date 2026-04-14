@@ -6,6 +6,7 @@ document export, and system monitoring helpers.
 """
 
 import os
+import re
 import sys
 import shutil
 import logging
@@ -351,15 +352,31 @@ def setup_fish_speech(dest_dir: str, on_progress=None, version: str = "1.4") -> 
 # Text normalization
 # ---------------------------------------------------------------------------
 
-def normalize_text(text: str) -> str:
+# Emotion/prosody tags Fish Speech understands — preserve these for Fish, strip for Kokoro
+_FISH_EMOTION_TAGS = re.compile(
+    r'\((?:excited|happy|sad|angry|surprised|confused|nervous|confident|'
+    r'satisfied|fearful|whisper|laughing|crying|shouting|serious|gentle)\)',
+    re.IGNORECASE,
+)
+_FISH_BRACKET_TAGS = re.compile(r'\[[^\]]{1,40}\]')
+
+
+def normalize_text(text: str, engine: str = "fish") -> str:
     """
     Normalize text before TTS to improve pronunciation and quality.
 
+    engine: "fish" — preserve Fish Speech emotion/prosody tags
+            "kokoro" — strip all inline tags (Kokoro doesn't understand them)
+
+    - Strips unknown/broken markup
     - Converts numbers to words (requires num2words)
     - Expands common abbreviations
-    - Strips URLs and problematic characters
+    - Strips URLs
     """
-    import re
+    # For Kokoro: strip Fish Speech style tags so they aren't read literally
+    if engine == "kokoro":
+        text = _FISH_BRACKET_TAGS.sub(' ', text)
+        text = _FISH_EMOTION_TAGS.sub(' ', text)
 
     # 1. Strip URLs
     text = re.sub(r'https?://\S+|www\.\S+', '', text)

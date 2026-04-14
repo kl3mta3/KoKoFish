@@ -29,6 +29,14 @@ pdfplumber==0.11.9
 num2words==0.5.13
 noisereduce==3.0.3
 
+# --- Text editor / tag pipeline ---
+language-tool-python==2.8.1
+vaderSentiment==3.3.2
+# llama-cpp-python is optional (needed for AI tag generation with Qwen 0.5B).
+# Install separately after setup if desired:
+#   pip install llama-cpp-python
+# Pre-built CPU wheels are available — no compiler needed on Windows.
+
 # --- System ---
 psutil==5.9.8
 numpy==1.26.4

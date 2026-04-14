@@ -419,7 +419,7 @@ class FishTalkUI:
         silent_frame = ctk.CTkFrame(playlist_header, fg_color="transparent")
         silent_frame.pack(side="right", padx=(0, 16))
         ctk.CTkLabel(
-            silent_frame, text="🔇", font=(FONT_FAMILY, 13),
+            silent_frame, text="🔇 Work Silently", font=(FONT_FAMILY, 13),
             text_color=COLORS["text_secondary"],
         ).pack(side="left", padx=(0, 3))
         self.silent_switch = ctk.CTkSwitch(
@@ -433,7 +433,7 @@ class FishTalkUI:
         auto_save_frame = ctk.CTkFrame(playlist_header, fg_color="transparent")
         auto_save_frame.pack(side="right", padx=(0, 10))
         ctk.CTkLabel(
-            auto_save_frame, text="📂", font=(FONT_FAMILY, 13),
+            auto_save_frame, text="📂 Auto Save", font=(FONT_FAMILY, 13),
             text_color=COLORS["text_secondary"],
         ).pack(side="left", padx=(0, 3))
         self.auto_save_switch = ctk.CTkSwitch(
@@ -1302,6 +1302,8 @@ class FishTalkUI:
                 "path": path,
                 "selected": True,
                 "voice": default_voice,
+                "blend_voice": "",
+                "blend_ratio": 0.5,
             }
             self._playlist_items.append(item)
             self._rebuild_playlist_ui()
@@ -1373,14 +1375,17 @@ class FishTalkUI:
                 row, text=dot, font=(FONT_FAMILY, 11), width=20,
             ).pack(side="left", padx=(0, 4))
 
-            # ── Index + filename + char count ────────────────────────────
-            ctk.CTkLabel(
+            # ── Index + filename (double-click opens editor) ─────────────
+            name_lbl = ctk.CTkLabel(
                 row,
                 text=f"{idx + 1}. {item['name']}",
                 font=(FONT_FAMILY, 12),
                 text_color=txt_color,
                 anchor="w",
-            ).pack(side="left", padx=(0, 4))
+                cursor="hand2",
+            )
+            name_lbl.pack(side="left", padx=(0, 4))
+            name_lbl.bind("<Double-Button-1>", lambda e, i=idx: self._open_editor(i))
 
             ctk.CTkLabel(
                 row,
@@ -1438,6 +1443,52 @@ class FishTalkUI:
                 font=(FONT_FAMILY, 11),
                 command=lambda v, i=idx, var=voice_var: _on_voice_change(v, i, var),
             ).pack(side="right", padx=(0, 4))
+
+            # ── Kokoro blend voice (shown only in Kokoro mode) ───────────
+            if is_kokoro:
+                blend_options = ["— no blend —"] + voice_options
+                item_blend = item.get("blend_voice", "") or "— no blend —"
+                if item_blend not in blend_options:
+                    item_blend = "— no blend —"
+
+                blend_var = ctk.StringVar(value=item_blend)
+
+                def _on_blend_change(v, i=idx, bvar=blend_var):
+                    val = bvar.get()
+                    self._playlist_items[i]["blend_voice"] = "" if val == "— no blend —" else val
+
+                ctk.CTkOptionMenu(
+                    row,
+                    values=blend_options,
+                    variable=blend_var,
+                    width=130,
+                    height=24,
+                    fg_color=COLORS["bg_input"],
+                    button_color=COLORS["bg_card_hover"],
+                    button_hover_color=COLORS["accent"],
+                    dropdown_fg_color=COLORS["bg_card"],
+                    dropdown_hover_color=COLORS["bg_card_hover"],
+                    font=(FONT_FAMILY, 10),
+                    command=lambda v, i=idx, bvar=blend_var: _on_blend_change(v, i, bvar),
+                ).pack(side="right", padx=(0, 2))
+
+                ctk.CTkLabel(
+                    row, text="+", font=(FONT_FAMILY, 10),
+                    text_color=COLORS["text_muted"], width=10,
+                ).pack(side="right")
+
+    def _open_editor(self, index: int):
+        """Open the text editor window for a playlist item."""
+        if index < 0 or index >= len(self._playlist_items):
+            return
+        from text_editor_window import TextEditorWindow
+        engine = getattr(self.settings, 'engine', 'fish14')
+        TextEditorWindow(
+            parent=self.root,
+            item=self._playlist_items[index],
+            engine=engine,
+            on_save=self._rebuild_playlist_ui,
+        )
 
     def _tts_remove_item(self, index: int):
         if self._preview_idx == index:
@@ -1988,9 +2039,14 @@ class FishTalkUI:
         if _is_kokoro_mode:
             # voice_name may be display name or raw ID — handle both
             voice_id = KOKORO_VOICES.get(voice_name, voice_name if voice_name in KOKORO_VOICES.values() else DEFAULT_VOICE)
+            # Per-item blend voice (also resolve display name → ID)
+            blend_name = item.get("blend_voice", "")
+            blend_voice_id = KOKORO_VOICES.get(blend_name, blend_name) if blend_name else ""
             self.tts.generate(
                 text=item["text"],
                 voice_id=voice_id,
+                blend_voice=blend_voice_id,
+                blend_ratio=item.get("blend_ratio", 0.5),
                 speed=speed,
                 output_path=_output_path,
                 on_progress=on_progress,

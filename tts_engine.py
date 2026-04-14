@@ -349,8 +349,8 @@ class TTSEngine:
                 if on_progress:
                     on_progress("Preparing generation...", 0.1)
 
-                # Normalize text before sending to the model
-                text = normalize_text(text)
+                # Normalize text — preserve Fish Speech emotion/prosody tags
+                text = normalize_text(text, engine="fish")
 
                 # Prepare prompt tokens for voice cloning
                 prompt_tokens_list = None
