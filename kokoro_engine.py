@@ -1,5 +1,5 @@
 """
-FishTalk — Kokoro Fast CPU Engine.
+KoKoFish — Kokoro Fast CPU Engine.
 
 Wraps kokoro-onnx (v1.0 int8 quantized) to provide real-time TTS on CPU
 with 54 preset voices. No voice cloning — use Fish-Speech 1.4/1.5 for that.
@@ -19,7 +19,7 @@ from typing import Callable, Optional
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 
-logger = logging.getLogger("FishTalk.kokoro")
+logger = logging.getLogger("KoKoFish.kokoro")
 
 # ---------------------------------------------------------------------------
 # Model file paths (bundled inside the repo)
@@ -250,7 +250,7 @@ def install_kokoro(
                     on_complete(False, f"Installation failed:\n{msg}")
                 return
             if on_complete:
-                on_complete(True, "Kokoro installed! Restart FishTalk to use it.")
+                on_complete(True, "Kokoro installed! Restart KoKoFish to use it.")
         except Exception as exc:
             if on_complete:
                 on_complete(False, f"Error: {exc}")
@@ -555,7 +555,7 @@ class KokoroEngine:
                     import time as _time
                     output_path = os.path.join(
                         tempfile.gettempdir(),
-                        f"fishtalk_tts_{int(_time.time())}.wav",
+                        f"kokofish_tts_{int(_time.time())}.wav",
                     )
 
                 full_audio = np.concatenate(all_audio) if all_audio else np.zeros(0, dtype=np.float32)

@@ -1,8 +1,8 @@
 ================================================================================
-                            FishTalk — Credits & Licenses
+                            KoKoFish — Credits & Licenses
 ================================================================================
 
-FishTalk is a local-first desktop application for Text-to-Speech and
+KoKoFish is a local-first desktop application for Text-to-Speech and
 Speech-to-Text. This software uses the following open-source libraries:
 
 --------------------------------------------------------------------------------

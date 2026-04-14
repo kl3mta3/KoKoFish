@@ -1,5 +1,5 @@
 """
-FishTalk — User Interface.
+KoKoFish — User Interface.
 
 CustomTkinter dark-mode GUI with 4 tabs:
   Tab 1: Read Aloud (TTS)
@@ -41,7 +41,7 @@ from voice_manager import VoiceManager
 import re
 import time
 
-logger = logging.getLogger("FishTalk.ui")
+logger = logging.getLogger("KoKoFish.ui")
 
 # ---------------------------------------------------------------------------
 # App paths
@@ -76,8 +76,8 @@ FONT_FAMILY = "Segoe UI"
 # MAIN UI CLASS
 # ============================================================================
 
-class FishTalkUI:
-    """Builds and manages the entire FishTalk user interface."""
+class KoKoFishUI:
+    """Builds and manages the entire KoKoFish user interface."""
 
     def __init__(
         self,
@@ -145,7 +145,7 @@ class FishTalkUI:
 
         title_label = ctk.CTkLabel(
             header,
-            text="🐟  FishTalk",
+            text="🐟  KoKoFish",
             font=(FONT_FAMILY, 28, "bold"),
             text_color=COLORS["accent_light"],
         )
@@ -179,6 +179,7 @@ class FishTalkUI:
         self.tab_stt      = self.tabview.add("📝  Text Lab")
         self.tab_convert  = self.tabview.add("📁  File Lab")
         self.tab_listen   = self.tabview.add("🎧  Listen Lab")
+        self.tab_chat     = self.tabview.add("🤖  Prompt Lab")
         self.tab_settings = self.tabview.add("⚙  Settings")
 
         # Listen Lab state
@@ -199,6 +200,7 @@ class FishTalkUI:
         self._build_stt_tab()
         self._build_convert_tab()
         self._build_listen_lab_tab()
+        self._build_prompt_lab_tab()
         self._build_settings_tab()
 
         # Lock Voice Lab tab when Kokoro engine is active
@@ -1466,7 +1468,7 @@ class FishTalkUI:
                 import subprocess, tempfile
                 start = time.time()
                 self.root.after(0, lambda: _comb_tick(start))
-                tmp = tempfile.mkdtemp(prefix="fishtalk_comb_")
+                tmp = tempfile.mkdtemp(prefix="kokofish_comb_")
                 try:
                     wav_files, durations_ms = [], []
                     for fi, f in enumerate(_comb_files):
@@ -1507,7 +1509,7 @@ class FishTalkUI:
 
                     meta_txt = os.path.join(tmp, "chapters.txt")
                     with open(meta_txt, "w", encoding="utf-8") as fh:
-                        fh.write(";FFMETADATA1\ntitle=Combined Audiobook\nartist=FishTalk\n\n")
+                        fh.write(";FFMETADATA1\ntitle=Combined Audiobook\nartist=KoKoFish\n\n")
                         cursor = 0
                         for f, dur in zip(_comb_files, durations_ms):
                             title = os.path.splitext(f["name"])[0]
@@ -2964,7 +2966,7 @@ class FishTalkUI:
                 return
             name = name.strip()
             if self.voices.voice_exists(name):
-                messagebox.showwarning("FishTalk", f"Voice '{name}' already exists.", parent=self.root)
+                messagebox.showwarning("KoKoFish", f"Voice '{name}' already exists.", parent=self.root)
                 return
 
             rec_path = self._mic_rec_path
@@ -2980,7 +2982,7 @@ class FishTalkUI:
                     )
                     self.root.after(0, self._refresh_voice_grid)
                     self.root.after(0, lambda: messagebox.showinfo(
-                        "FishTalk",
+                        "KoKoFish",
                         f"Voice '{name}' created successfully!"
                         + (f"\n\nTranscript:\n\"{transcript[:120]}{'…' if len(transcript) > 120 else ''}\""
                            if transcript else ""),
@@ -3112,6 +3114,521 @@ class FishTalkUI:
         if self.tts_voice_var.get() not in names:
             self.tts_voice_var.set(names[0] if names else "Default (Random)")
         self._rebuild_playlist_ui()
+
+    # ==================================================================
+    # TAB: Prompt Lab
+    # ==================================================================
+
+    def _build_prompt_lab_tab(self):
+        """Chat interface for direct conversation with the local LLM."""
+        from tag_suggester import PROMPT_LAB_PRESETS
+        tab = self.tab_chat
+
+        # Chat state
+        self._chat_history: list = []
+        self._chat_busy = False
+
+        outer = ctk.CTkFrame(tab, fg_color="transparent")
+        outer.pack(fill="both", expand=True, padx=12, pady=10)
+
+        # ── Top bar ──────────────────────────────────────────────────────
+        top_bar = ctk.CTkFrame(outer, fg_color="transparent")
+        top_bar.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            top_bar, text="🤖  Prompt Lab",
+            font=(FONT_FAMILY, 16, "bold"),
+            text_color=COLORS["accent_light"],
+        ).pack(side="left")
+
+        self._chat_model_badge = ctk.CTkLabel(
+            top_bar, text="",
+            font=(FONT_FAMILY, 10),
+            text_color=COLORS["text_muted"],
+        )
+        self._chat_model_badge.pack(side="left", padx=(10, 0))
+        self._chat_refresh_model_badge()
+
+        ctk.CTkButton(
+            top_bar, text="🗑  Clear Chat",
+            width=110, height=28, corner_radius=6,
+            fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"],
+            border_color=COLORS["border"], border_width=1,
+            font=(FONT_FAMILY, 11),
+            command=self._chat_clear,
+        ).pack(side="right")
+
+        # ── Context depth control ─────────────────────────────────────────
+        # How many recent messages (pairs) to include in each request.
+        # Small models overflow quickly — 10 pairs = 20 messages is a safe cap.
+        self._chat_ctx_var = ctk.IntVar(value=10)   # pairs → × 2 for user+asst
+
+        _ctx_right = ctk.CTkFrame(top_bar, fg_color="transparent")
+        _ctx_right.pack(side="right", padx=(0, 12))
+
+        ctk.CTkLabel(
+            _ctx_right, text="Context:",
+            font=(FONT_FAMILY, 10),
+            text_color=COLORS["text_muted"],
+        ).pack(side="left", padx=(0, 4))
+
+        self._chat_ctx_lbl = ctk.CTkLabel(
+            _ctx_right,
+            text="10 turns",
+            font=(FONT_FAMILY, 10),
+            text_color=COLORS["text_secondary"],
+            width=52,
+        )
+        self._chat_ctx_lbl.pack(side="right", padx=(4, 0))
+
+        def _on_ctx_slide(v):
+            n = int(float(v))
+            self._chat_ctx_var.set(n)
+            self._chat_ctx_lbl.configure(
+                text="all" if n == 0 else f"{n} turns"
+            )
+
+        _ctx_slider = ctk.CTkSlider(
+            _ctx_right,
+            from_=0, to=25, number_of_steps=25,
+            variable=self._chat_ctx_var,
+            width=110, height=14,
+            command=_on_ctx_slide,
+            button_color=COLORS["accent"],
+            progress_color=COLORS["accent"],
+        )
+        _ctx_slider.pack(side="left")
+        self._make_tooltip(
+            _ctx_slider,
+            "How many conversation turns to include with each message.\n"
+            "0 = send full history.  Small models (0.5B) overflow above ~8 turns.\n"
+            "Larger models (1.5B+) handle 15-25 turns comfortably.",
+        )
+
+        # ── Persona / system-prompt bar ──────────────────────────────────
+        preset_bar = ctk.CTkFrame(outer, fg_color=COLORS["bg_card"], corner_radius=8)
+        preset_bar.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            preset_bar, text="Persona:",
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["text_secondary"],
+        ).pack(side="left", padx=(10, 6), pady=6)
+
+        _preset_names = list(PROMPT_LAB_PRESETS.keys())
+        self._chat_preset_var = ctk.StringVar(value=_preset_names[0])
+
+        def _on_preset_change(v):
+            self._chat_system_box.configure(state="normal")
+            self._chat_system_box.delete("1.0", "end")
+            preset_text = PROMPT_LAB_PRESETS.get(v, "")
+            self._chat_system_box.insert("1.0", preset_text)
+            if v != "Custom":
+                self._chat_system_box.configure(state="disabled")
+
+        ctk.CTkOptionMenu(
+            preset_bar,
+            variable=self._chat_preset_var,
+            values=_preset_names,
+            width=180, height=26,
+            fg_color=COLORS["bg_input"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_hover_color=COLORS["bg_card_hover"],
+            font=(FONT_FAMILY, 11),
+            command=_on_preset_change,
+        ).pack(side="left", padx=(0, 8), pady=6)
+
+        ctk.CTkLabel(
+            preset_bar, text="System prompt:",
+            font=(FONT_FAMILY, 10),
+            text_color=COLORS["text_muted"],
+        ).pack(side="left", padx=(0, 4))
+
+        self._chat_system_box = ctk.CTkTextbox(
+            preset_bar,
+            height=28, wrap="none",
+            fg_color=COLORS["bg_input"],
+            text_color=COLORS["text_secondary"],
+            font=(FONT_FAMILY, 10),
+        )
+        self._chat_system_box.pack(side="left", fill="x", expand=True, padx=(0, 10), pady=4)
+        self._chat_system_box.insert("1.0", PROMPT_LAB_PRESETS[_preset_names[0]])
+        self._chat_system_box.configure(state="disabled")  # editable only on Custom
+
+        # ── Chat display ─────────────────────────────────────────────────
+        self._chat_display = ctk.CTkTextbox(
+            outer,
+            fg_color=COLORS["bg_card"],
+            text_color=COLORS["text_primary"],
+            font=(FONT_FAMILY, 13),
+            wrap="word",
+            state="disabled",
+            corner_radius=8,
+        )
+        self._chat_display.pack(fill="both", expand=True, pady=(0, 8))
+
+        # CTkTextbox wraps tk.Text — use ._textbox directly for tag operations
+        _tb = self._chat_display._textbox
+        _tb.tag_config("user_label",
+            foreground=COLORS["accent_light"],
+            font=(FONT_FAMILY, 12, "bold"),
+        )
+        _tb.tag_config("user_text",
+            foreground="#c8d6f7",
+            font=(FONT_FAMILY, 13),
+        )
+        _tb.tag_config("asst_label",
+            foreground=COLORS["success"],
+            font=(FONT_FAMILY, 12, "bold"),
+        )
+        _tb.tag_config("asst_text",
+            foreground=COLORS["text_primary"],
+            font=(FONT_FAMILY, 13),
+        )
+        _tb.tag_config("muted",
+            foreground=COLORS["text_muted"],
+            font=(FONT_FAMILY, 10),
+        )
+
+        # Build a welcome message that identifies the loaded model
+        try:
+            from tag_suggester import get_active_model_cfg, get_active_llm_key, is_llm_available, is_qwen_model_ready
+            if not is_llm_available():
+                _welcome = ("llama-cpp-python is not installed.\n"
+                            "Go to Settings to install it, then come back.\n\n")
+            elif not is_qwen_model_ready():
+                _welcome = ("No LLM model found.\n"
+                            "Go to Settings -> Download Model, then come back.\n\n")
+            else:
+                _cfg = get_active_model_cfg()
+                _welcome = (
+                    f"Model: {get_active_llm_key()}  ({_cfg.get('filename', '')})\n"
+                    "Type a message and press Send or Ctrl+Enter. "
+                    "Pick a Persona above to guide the tone.\n\n"
+                )
+        except Exception:
+            _welcome = "Local LLM ready. Type a message and press Send or Ctrl+Enter.\n\n"
+
+        self._chat_append("muted", _welcome)
+
+        # ── Input area ───────────────────────────────────────────────────
+        self._chat_attachment = None   # {"type": "text"|"image", "path": str, "content": str|bytes}
+
+        input_frame = ctk.CTkFrame(outer, fg_color=COLORS["bg_card"], corner_radius=8)
+        input_frame.pack(fill="x")
+
+        # Attachment bar (hidden until a file is attached)
+        self._chat_attach_bar = ctk.CTkFrame(input_frame, fg_color=COLORS["bg_input"], corner_radius=6)
+        # Packed dynamically in _chat_set_attachment()
+
+        _attach_icon = ctk.CTkLabel(
+            self._chat_attach_bar, text="📎",
+            font=(FONT_FAMILY, 13),
+        )
+        _attach_icon.pack(side="left", padx=(8, 4), pady=4)
+
+        self._chat_attach_name = ctk.CTkLabel(
+            self._chat_attach_bar, text="",
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["text_secondary"],
+        )
+        self._chat_attach_name.pack(side="left", padx=(0, 8), pady=4)
+
+        ctk.CTkButton(
+            self._chat_attach_bar, text="✕ Remove",
+            width=70, height=22, corner_radius=4,
+            fg_color=COLORS["bg_card"], hover_color=COLORS["danger"],
+            font=(FONT_FAMILY, 10),
+            command=self._chat_clear_attachment,
+        ).pack(side="right", padx=8, pady=4)
+
+        # Text input + button column
+        input_row = ctk.CTkFrame(input_frame, fg_color="transparent")
+        input_row.pack(fill="x")
+
+        self._chat_input = ctk.CTkTextbox(
+            input_row,
+            height=80,
+            fg_color=COLORS["bg_input"],
+            text_color=COLORS["text_primary"],
+            font=(FONT_FAMILY, 13),
+            wrap="word",
+        )
+        self._chat_input.pack(side="left", fill="both", expand=True, padx=(8, 6), pady=8)
+        self._chat_input.bind("<Control-Return>", lambda e: self._chat_send())
+
+        # Enable drag-and-drop if tkinterdnd2 is available
+        try:
+            from tkinterdnd2 import DND_FILES
+            self._chat_input.drop_target_register(DND_FILES)
+            self._chat_input.dnd_bind("<<Drop>>", self._chat_on_drop)
+            self._chat_display.drop_target_register(DND_FILES)
+            self._chat_display.dnd_bind("<<Drop>>", self._chat_on_drop)
+        except Exception:
+            pass  # tkinterdnd2 not installed — use the attach button instead
+
+        btn_col = ctk.CTkFrame(input_row, fg_color="transparent")
+        btn_col.pack(side="right", padx=(0, 8), pady=8)
+
+        self._chat_send_btn = ctk.CTkButton(
+            btn_col,
+            text="Send  ▶",
+            width=100, height=36, corner_radius=8,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            font=(FONT_FAMILY, 13, "bold"),
+            command=self._chat_send,
+        )
+        self._chat_send_btn.pack()
+
+        ctk.CTkButton(
+            btn_col,
+            text="📎 Attach",
+            width=100, height=28, corner_radius=6,
+            fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"],
+            border_color=COLORS["border"], border_width=1,
+            font=(FONT_FAMILY, 11),
+            command=self._chat_attach_file,
+        ).pack(pady=(6, 0))
+
+        self._chat_status = ctk.CTkLabel(
+            btn_col, text="",
+            font=(FONT_FAMILY, 9),
+            text_color=COLORS["text_muted"],
+            wraplength=100,
+        )
+        self._chat_status.pack(pady=(4, 0))
+
+        self._make_tooltip(self._chat_send_btn, "Send message  (Ctrl+Enter)")
+
+    # ── Attachment helpers ────────────────────────────────────────────────
+
+    _CHAT_TEXT_EXTS = {".txt", ".md", ".csv", ".log", ".rst", ".json", ".xml", ".html"}
+
+    def _chat_attach_file(self):
+        """Open a file picker and attach a text file to the next message."""
+        path = filedialog.askopenfilename(
+            title="Attach text file",
+            filetypes=[
+                ("Text files", "*.txt *.md *.csv *.log *.rst *.json *.xml *.html"),
+                ("All files",  "*.*"),
+            ],
+        )
+        if path:
+            self._chat_load_attachment(path)
+
+    def _chat_on_drop(self, event):
+        """Handle files dropped onto the chat input or display area."""
+        raw = event.data.strip()
+        # tkinterdnd2 wraps multi-word paths in braces
+        if raw.startswith("{") and raw.endswith("}"):
+            raw = raw[1:-1]
+        # Take the first file if multiple were dropped
+        path = raw.split("} {")[0].strip("{}")
+        if os.path.isfile(path):
+            self._chat_load_attachment(path)
+
+    def _chat_load_attachment(self, path: str):
+        """Read the file at *path* and store it as the pending attachment."""
+        ext = os.path.splitext(path)[1].lower()
+        name = os.path.basename(path)
+
+        if ext in self._CHAT_TEXT_EXTS:
+            try:
+                content = open(path, encoding="utf-8", errors="replace").read()
+            except Exception as exc:
+                messagebox.showerror("Error", f"Could not read file:\n{exc}")
+                return
+            size_kb = len(content) / 1024
+            # Warn if file is very large — small models have limited context
+            if len(content) > 6000:
+                if not messagebox.askyesno(
+                    "Large File",
+                    f"'{name}' is {size_kb:.0f} KB ({len(content):,} chars).\n\n"
+                    "Small models have a limited context window and may struggle "
+                    "with very large files.  Attach anyway?",
+                    parent=self.root,
+                ):
+                    return
+            self._chat_set_attachment({
+                "type": "text", "path": path, "content": content,
+            })
+        else:
+            messagebox.showinfo(
+                "Unsupported File Type",
+                f"'{ext}' files are not supported.\n\n"
+                "Supported types:  .txt  .md  .csv  .log  .json  .xml  .html",
+                parent=self.root,
+            )
+
+    def _chat_set_attachment(self, att: dict):
+        """Store attachment and update the attachment bar."""
+        self._chat_attachment = att
+        name = os.path.basename(att["path"])
+        size = f"{len(att['content']):,} chars"
+        self._chat_attach_name.configure(text=f"📄 {name}  ({size})")
+        self._chat_attach_bar.pack(fill="x", padx=8, pady=(6, 0), before=self._chat_input.master)
+
+    def _chat_clear_attachment(self):
+        """Remove the pending attachment."""
+        self._chat_attachment = None
+        self._chat_attach_bar.pack_forget()
+        self._chat_attach_name.configure(text="")
+
+    def _chat_refresh_model_badge(self):
+        """Update the model-name badge shown next to the Prompt Lab title."""
+        try:
+            from tag_suggester import get_active_model_cfg, get_active_llm_key, is_llm_available, is_qwen_model_ready
+            if not is_llm_available():
+                self._chat_model_badge.configure(
+                    text="⚠ llama-cpp not installed", text_color=COLORS["danger"]
+                )
+            elif not is_qwen_model_ready():
+                self._chat_model_badge.configure(
+                    text="⚠ Model not downloaded", text_color=COLORS["warning"]
+                )
+            else:
+                _active_key = get_active_llm_key()
+                self._chat_model_badge.configure(
+                    text=f"model: {_active_key}",
+                    text_color=COLORS["success"],
+                )
+        except Exception:
+            pass
+
+    def _chat_append(self, tag: str, text: str):
+        """Append styled text to the chat display (call from main thread)."""
+        self._chat_display.configure(state="normal")
+        # Use underlying tk.Text directly for reliable tag support
+        self._chat_display._textbox.insert("end", text, tag)
+        self._chat_display._textbox.see("end")
+        self._chat_display.configure(state="disabled")
+
+    def _chat_send(self):
+        """Send the user message (with any attachment) and stream the LLM response."""
+        if self._chat_busy:
+            return
+        user_text = self._chat_input.get("1.0", "end").strip()
+        att = self._chat_attachment
+
+        if not user_text and att is None:
+            return
+
+        from tag_suggester import is_llm_available, is_qwen_model_ready, chat_with_llm
+
+        if not is_llm_available():
+            messagebox.showerror(
+                "Prompt Lab",
+                "llama-cpp-python not installed.\nInstall it in Settings.",
+            )
+            return
+        if not is_qwen_model_ready():
+            messagebox.showerror(
+                "Prompt Lab",
+                "LLM model not downloaded.\nOpen Settings -> Download Model.",
+            )
+            return
+
+        # Build the actual message sent to the LLM
+        # Text attachment: prepend file content so the model can reason about it
+        display_text = user_text or "(see attached file)"
+        if att and att["type"] == "text":
+            att_name = os.path.basename(att["path"])
+            # Truncate very large files to the first ~4000 chars so small models don't choke
+            snippet = att["content"]
+            truncated = len(snippet) > 4000
+            if truncated:
+                snippet = snippet[:4000]
+            file_block = (
+                f"[Attached file: {att_name}]\n"
+                f"{'(truncated to first 4000 chars) ' if truncated else ''}\n"
+                f"{snippet}\n\n"
+            )
+            llm_text = file_block + (user_text if user_text else "Summarise or describe this file.")
+        else:
+            llm_text = user_text
+
+        # Read system prompt
+        self._chat_system_box.configure(state="normal")
+        system_prompt = self._chat_system_box.get("1.0", "end").strip()
+        _preset = self._chat_preset_var.get()
+        if _preset != "Custom":
+            self._chat_system_box.configure(state="disabled")
+
+        # Clear input + attachment, lock UI
+        self._chat_input.delete("1.0", "end")
+        self._chat_clear_attachment()
+        self._chat_busy = True
+        self._chat_send_btn.configure(state="disabled", text="…")
+        self._chat_status.configure(text="Thinking…")
+
+        # Show user bubble (display only the typed text, not the whole file dump)
+        self._chat_append("user_label", "You\n")
+        if att:
+            att_note = f"[📎 {os.path.basename(att['path'])}]  " if att else ""
+            self._chat_append("muted", att_note)
+        self._chat_append("user_text", f"{display_text}\n\n")
+
+        # Record in history with the full content (file + prompt)
+        self._chat_history.append({"role": "user", "content": llm_text})
+
+        # Start assistant bubble header
+        self._chat_append("asst_label", "Assistant\n")
+
+        def _on_token(token: str):
+            self.root.after(0, lambda t=token: self._chat_append("asst_text", t))
+
+        # Slice history according to context-depth slider
+        # Each "turn" = 1 user msg + 1 assistant msg = 2 entries.
+        # The current user message was just appended, so it's always included.
+        _ctx_turns = self._chat_ctx_var.get()
+        if _ctx_turns == 0:
+            _history_to_send = self._chat_history          # send everything
+        else:
+            # Keep the last N turns (pairs) worth of history.
+            # _ctx_turns * 2 gives the max messages; the current user message
+            # is already at the end of _chat_history so it's naturally included.
+            _history_to_send = self._chat_history[-(_ctx_turns * 2):]
+
+        def _run():
+            try:
+                reply = chat_with_llm(
+                    messages=_history_to_send,
+                    system_prompt=system_prompt,
+                    max_tokens=700,
+                    on_token=_on_token,
+                )
+                self._chat_history.append({"role": "assistant", "content": reply})
+                self.root.after(0, lambda: self._chat_append("asst_text", "\n\n"))
+            except Exception as exc:
+                self.root.after(0, lambda: self._chat_append(
+                    "muted", f"[Error: {exc}]\n\n"
+                ))
+            finally:
+                self.root.after(0, self._chat_send_done)
+
+        threading.Thread(target=_run, daemon=True, name="PromptLab").start()
+
+    def _chat_send_done(self):
+        """Re-enable the send button after response completes."""
+        self._chat_busy = False
+        self._chat_send_btn.configure(state="normal", text="Send  ▶")
+        self._chat_status.configure(text="")
+
+    def _chat_clear(self):
+        """Clear conversation history and display."""
+        self._chat_history.clear()
+        self._chat_display.configure(state="normal")
+        self._chat_display.delete("1.0", "end")
+        self._chat_display.configure(state="disabled")
+        self._chat_append(
+            "muted",
+            "Chat cleared. Start a new conversation below.\n\n",
+        )
 
     # ==================================================================
     # TAB 4: Settings
@@ -3680,7 +4197,7 @@ class FishTalkUI:
 
         credits_frame = setting_row(main)
         credits_text = (
-            "FishTalk uses the following open-source libraries:\n"
+            "KoKoFish uses the following open-source libraries:\n"
             "• Fish-Speech (Apache 2.0) — TTS engine by Fish Audio\n"
             "• faster-whisper (MIT) — STT engine by SYSTRAN\n"
             "• CustomTkinter (MIT) — GUI framework by Tom Schimansky\n"
@@ -4623,7 +5140,7 @@ class FishTalkUI:
     def _tts_play(self):
         """Read all playlist items in order, skipping those already generated."""
         if not self._playlist_items:
-            messagebox.showinfo("FishTalk", "Add files to the playlist first.")
+            messagebox.showinfo("KoKoFish", "Add files to the playlist first.")
             return
 
         if not self.tts.is_loaded:
@@ -4674,7 +5191,7 @@ class FishTalkUI:
         """Generate TTS for all checked items. Ask before re-generating completed ones."""
         selected = [i for i, it in enumerate(self._playlist_items) if it.get("selected", True)]
         if not selected:
-            messagebox.showinfo("FishTalk", "No items selected.")
+            messagebox.showinfo("KoKoFish", "No items selected.")
             return
 
         # Check if any already have audio
@@ -4820,7 +5337,7 @@ class FishTalkUI:
             and os.path.isfile(it["audio_path"])
         ]
         if not ready:
-            messagebox.showinfo("FishTalk", "No selected items have generated audio yet.")
+            messagebox.showinfo("KoKoFish", "No selected items have generated audio yet.")
             return
         self._stop_preview()
         self._preview_queue = list(ready)
@@ -4897,10 +5414,11 @@ class FishTalkUI:
 
         # Resolve target language and translation need now (on main thread)
         if _is_kokoro_mode:
-            # Kokoro: auto-translate whenever voice language is non-English
+            # Kokoro: only translate when the per-item toggle is ON and voice is non-English.
+            # The LLM prompt auto-detects source language and skips if already correct.
             _item_voice_id = KOKORO_VOICES.get(item.get("voice", ""), "")
             _target_lang   = KOKORO_VOICE_LANG.get(_item_voice_id, "English")
-            _needs_translate = _target_lang != "English"
+            _needs_translate = item.get("translate", False) and _target_lang != "English"
             _tone = "Natural"
         else:
             _needs_translate = item.get("translate", False)
@@ -4970,6 +5488,20 @@ class FishTalkUI:
                 return
 
         text_to_use = _text_override if _text_override is not None else item["text"]
+
+        # ── Free VRAM before GPU-heavy TTS engines ───────────────────────
+        # S1 and S1mini need most of the 12 GB VRAM; unload the LLM first
+        # if it was loaded onto the GPU.  It will reload automatically on the
+        # next Prompt Lab / Translate / Assisted-Flow request.
+        _engine_now = getattr(self.settings, "engine", "kokoro")
+        if _engine_now in ("s1mini", "s1") and getattr(self.settings, "use_cuda", False):
+            try:
+                from tag_suggester import is_llm_on_gpu, unload_llm
+                if is_llm_on_gpu():
+                    logger.info("Unloading LLM from VRAM before %s TTS generation", _engine_now)
+                    unload_llm()
+            except Exception as _ue:
+                logger.warning("LLM VRAM unload failed: %s", _ue)
 
         self.tts_status.configure(text=f"Generating: {item['name']}...")
         self._rebuild_playlist_ui()
@@ -5326,7 +5858,7 @@ class FishTalkUI:
         def _build():
             import subprocess, tempfile
 
-            tmp_dir = tempfile.mkdtemp(prefix="fishtalk_ab_")
+            tmp_dir = tempfile.mkdtemp(prefix="kokofish_ab_")
             try:
                 # ── 1. Normalise all inputs to wav (ffmpeg handles wav/mp3) ──
                 wav_files = []
@@ -5362,7 +5894,7 @@ class FishTalkUI:
                 # ── 3. Write FFmpeg chapter metadata ─────────────────────────
                 meta_txt = os.path.join(tmp_dir, "chapters.txt")
                 with open(meta_txt, "w", encoding="utf-8") as f:
-                    f.write(";FFMETADATA1\ntitle=Audiobook\nartist=FishTalk\n\n")
+                    f.write(";FFMETADATA1\ntitle=Audiobook\nartist=KoKoFish\n\n")
                     cursor_ms = 0
                     for it, dur_ms in zip(ready, durations_ms):
                         title = os.path.splitext(it["name"])[0]
@@ -5456,7 +5988,7 @@ class FishTalkUI:
         """Set the audio file for transcription."""
         ext = os.path.splitext(path)[1].lower()
         if ext not in (".wav", ".mp3", ".m4a", ".flac", ".ogg"):
-            messagebox.showwarning("FishTalk", f"Unsupported audio format: {ext}")
+            messagebox.showwarning("KoKoFish", f"Unsupported audio format: {ext}")
             return
         self._stt_audio_path = path
         name = os.path.basename(path)
@@ -5466,7 +5998,7 @@ class FishTalkUI:
     def _stt_transcribe(self):
         """Start transcription."""
         if not self._stt_audio_path:
-            messagebox.showinfo("FishTalk", "Drop or select an audio file first.")
+            messagebox.showinfo("KoKoFish", "Drop or select an audio file first.")
             return
 
         if not self.stt.is_loaded:
@@ -5567,7 +6099,7 @@ class FishTalkUI:
         self.stt_textbox.configure(state="disabled")
 
         if not text or text == "Transcription will appear here in real time...":
-            messagebox.showinfo("FishTalk", "No transcription to export.")
+            messagebox.showinfo("KoKoFish", "No transcription to export.")
             return
 
         exts   = {"txt": ".txt", "docx": ".docx", "pdf": ".pdf", "epub": ".epub"}
@@ -5598,7 +6130,7 @@ class FishTalkUI:
                 export_epub(clean, path, title=stem)
             else:
                 {"txt": export_txt, "docx": export_docx, "pdf": export_pdf}[fmt](text, path)
-            messagebox.showinfo("FishTalk", f"Saved to:\n{path}")
+            messagebox.showinfo("KoKoFish", f"Saved to:\n{path}")
         except Exception as exc:
             messagebox.showerror("Error", f"Export failed:\n{exc}")
 
@@ -5616,15 +6148,15 @@ class FishTalkUI:
         self.stt_textbox.configure(state="disabled")
 
         if not text or text == "Transcription will appear here in real time...":
-            messagebox.showinfo("FishTalk", "No transcription to translate.")
+            messagebox.showinfo("KoKoFish", "No transcription to translate.")
             return
 
         from tag_suggester import is_llm_available, is_qwen_model_ready
         if not is_llm_available():
-            messagebox.showerror("FishTalk", "llama-cpp-python not installed — cannot translate.\nInstall it in Settings.")
+            messagebox.showerror("KoKoFish", "llama-cpp-python not installed — cannot translate.\nInstall it in Settings.")
             return
         if not is_qwen_model_ready():
-            messagebox.showerror("FishTalk", "LLM model not downloaded — cannot translate.\nDownload it in Settings.")
+            messagebox.showerror("KoKoFish", "LLM model not downloaded — cannot translate.\nDownload it in Settings.")
             return
 
         clean = self._stt_strip_timestamps(text)
@@ -5768,7 +6300,7 @@ class FishTalkUI:
         self.stt_textbox.configure(state="disabled")
 
         if not text or text == "Transcription will appear here in real time...":
-            messagebox.showinfo("FishTalk", "No transcription to send.")
+            messagebox.showinfo("KoKoFish", "No transcription to send.")
             return
 
         clean = self._stt_strip_timestamps(text)
@@ -5925,7 +6457,7 @@ class FishTalkUI:
 
         name = name.strip()
         if self.voices.voice_exists(name):
-            messagebox.showwarning("FishTalk", f"Voice '{name}' already exists.")
+            messagebox.showwarning("KoKoFish", f"Voice '{name}' already exists.")
             return
 
         # Auto-transcribe the reference audio so Fish Speech gets proper text
@@ -5941,7 +6473,7 @@ class FishTalkUI:
                 )
                 self.root.after(0, self._refresh_voice_grid)
                 self.root.after(0, lambda: messagebox.showinfo(
-                    "FishTalk", f"Voice '{name}' created successfully!"
+                    "KoKoFish", f"Voice '{name}' created successfully!"
                     + (f"\n\nTranscript saved:\n\"{transcript[:120]}{'…' if len(transcript) > 120 else ''}\"" if transcript else "")
                 ))
             except Exception as exc:
@@ -5998,18 +6530,37 @@ class FishTalkUI:
         if not self.tts.is_loaded:
             self._ensure_tts_loaded(lambda: self._voice_test(name))
             return
-            
+
         profile = self.voices.get_voice(name)
         if not profile:
             return
-            
+
         test_text = "Hello, how do I sound?"
-        
-        # We need a small loading indicator. We can use the status bar of TTS tab or similar
-        self.update_tts_status(f"⏳ Testing {name}...", COLORS["warning"])
-        
+        _start_time = [time.time()]
+        _timer_id   = [None]
+
+        def _tick():
+            """Update elapsed time every second while the test runs."""
+            elapsed = int(time.time() - _start_time[0])
+            self.update_tts_status(
+                f"⏳ Testing {name}…  ({elapsed}s)",
+                COLORS["warning"],
+            )
+            _timer_id[0] = self.root.after(1000, _tick)
+
+        def _stop_timer():
+            if _timer_id[0]:
+                self.root.after_cancel(_timer_id[0])
+                _timer_id[0] = None
+
+        self.update_tts_status(f"⏳ Testing {name}…  (0s)", COLORS["warning"])
+        _timer_id[0] = self.root.after(1000, _tick)
+
         def on_complete(wav_path):
-            self.root.after(0, lambda: self.update_tts_status("✅ Engine ready (test complete)", COLORS["success"]))
+            self.root.after(0, _stop_timer)
+            self.root.after(0, lambda: self.update_tts_status(
+                "✅ Test complete — playing sample", COLORS["success"]
+            ))
             def _play():
                 try:
                     import soundfile as sf_lib
@@ -6018,25 +6569,33 @@ class FishTalkUI:
                     sd.stop()
                     sd.play(data, sr)
                     sd.wait()
+                    self.root.after(0, lambda: self.update_tts_status(
+                        "✅ Engine ready", COLORS["success"]
+                    ))
                 except Exception as e:
                     logger.error("Voice test playback error: %s", e)
             threading.Thread(target=_play, daemon=True).start()
-                
-        def on_error(exc):
-            self.root.after(0, lambda: self.update_tts_status("✅ Engine ready", COLORS["success"]))
-            self.root.after(0, lambda: messagebox.showerror("Test Failed", f"Could not generate sample:\n{exc}"))
 
-        ref_wav = profile.get("wav_path")
+        def on_error(exc):
+            self.root.after(0, _stop_timer)
+            self.root.after(0, lambda: self.update_tts_status(
+                "✅ Engine ready", COLORS["success"]
+            ))
+            self.root.after(0, lambda: messagebox.showerror(
+                "Test Failed", f"Could not generate sample:\n{exc}"
+            ))
+
+        ref_wav     = profile.get("wav_path")
         tokens_path = profile.get("tokens_path")
-        ref_tokens = np.load(tokens_path) if tokens_path and os.path.isfile(tokens_path) else None
-        
+        ref_tokens  = np.load(tokens_path) if tokens_path and os.path.isfile(tokens_path) else None
+
         self.tts.generate(
             text=test_text,
             reference_wav=ref_wav,
             reference_tokens=ref_tokens,
             prompt_text=profile.get("prompt_text", ""),
             on_complete=on_complete,
-            on_error=on_error
+            on_error=on_error,
         )
 
     # ==================================================================
@@ -6051,7 +6610,7 @@ class FishTalkUI:
             # User is enabling CUDA but doesn't have CUDA PyTorch yet
             if not has_nvidia_gpu():
                 messagebox.showwarning(
-                    "FishTalk",
+                    "KoKoFish",
                     "No NVIDIA GPU detected.\nCUDA acceleration is not available on this system."
                 )
                 self.cuda_var.set(False)
@@ -6061,7 +6620,7 @@ class FishTalkUI:
             confirm = messagebox.askyesno(
                 "Download CUDA Support",
                 f"GPU detected: {gpu_name}\n\n"
-                "To enable GPU acceleration, FishTalk needs to download\n"
+                "To enable GPU acceleration, KoKoFish needs to download\n"
                 "the CUDA version of PyTorch (~2.5 GB).\n\n"
                 "This is a one-time download. The app will continue\n"
                 "working while it downloads in the background.\n\n"
@@ -6097,7 +6656,7 @@ class FishTalkUI:
                         self.settings.save()
                         messagebox.showinfo(
                             "CUDA Ready",
-                            f"{message}\n\nRestart FishTalk to use GPU acceleration."
+                            f"{message}\n\nRestart KoKoFish to use GPU acceleration."
                         )
                     else:
                         self.cuda_var.set(False)
@@ -6240,7 +6799,7 @@ class FishTalkUI:
                     download = messagebox.askyesno(
                         "Download Required",
                         f"Fish-Speech 1.4 models are not installed (~1.5 GB).\n\n"
-                        "Download now? FishTalk will restart when complete.",
+                        "Download now? KoKoFish will restart when complete.",
                     )
                     if not download:
                         self.settings.engine = prev_engine
@@ -6270,7 +6829,7 @@ class FishTalkUI:
             # Models already present — just restart
             confirm = messagebox.askyesno(
                 "Restart Required",
-                f"Switched to: {new_val}\n\nFishTalk needs to restart to load the new engine.\n\nRestart now?",
+                f"Switched to: {new_val}\n\nKoKoFish needs to restart to load the new engine.\n\nRestart now?",
             )
             if confirm:
                 self._restart_app()
@@ -6284,7 +6843,7 @@ class FishTalkUI:
                 download = messagebox.askyesno(
                     "Download Required",
                     "Kokoro model files are not installed (~330 MB).\n\n"
-                    "Download now? FishTalk will restart when complete.",
+                    "Download now? KoKoFish will restart when complete.",
                 )
                 if not download:
                     self.settings.engine = prev_engine
@@ -6313,7 +6872,7 @@ class FishTalkUI:
 
             confirm = messagebox.askyesno(
                 "Restart Required",
-                f"Switched to: {new_val}\n\nFishTalk needs to restart to load the new engine.\n\nRestart now?",
+                f"Switched to: {new_val}\n\nKoKoFish needs to restart to load the new engine.\n\nRestart now?",
             )
             if confirm:
                 self._restart_app()
@@ -6568,11 +7127,18 @@ class FishTalkUI:
         download_qwen_model(on_progress=_progress, on_complete=_complete)
 
     def _on_tab_changed(self):
-        """Handle tab switching for Memory Saver mode."""
+        """Handle tab switching — refresh Prompt Lab badge, Memory Saver logic."""
+        current = self.tabview.get()
+
+        # Refresh the model badge whenever Prompt Lab is opened
+        if "Prompt Lab" in current:
+            try:
+                self._chat_refresh_model_badge()
+            except Exception:
+                pass
+
         if not self.settings.memory_saver:
             return
-
-        current = self.tabview.get()
 
         if "Read Aloud" in current:
             # On TTS tab — unload STT, load TTS

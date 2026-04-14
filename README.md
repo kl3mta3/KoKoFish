@@ -1,12 +1,12 @@
-# FishTalk
+# KoKoFish
 
 <p align="center">
-  <img src="https://github.com/kl3mta3/FishTalk/blob/main/Images/icon.png" alt="FishTalk Icon" width="300"/>
+  <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/icon.png" alt="KoKoFish Icon" width="300"/>
 </p>
 
-<h1 align="center">FishTalk</h1>
+<h1 align="center">KoKoFish</h1>
 
-FishTalk is a desktop text-to-speech application built for Windows. It supports multiple AI engines, voice cloning, real-time audio playback, and speech-to-text transcription. It is designed to work entirely offline once the models are downloaded.
+KoKoFish is a desktop text-to-speech application built for Windows. It supports multiple AI engines, voice cloning, real-time audio playback, and speech-to-text transcription. It is designed to work entirely offline once the models are downloaded.
 
 ---
 
@@ -55,9 +55,9 @@ FishTalk is a desktop text-to-speech application built for Windows. It supports 
 
 ## Screenshots
 
-![Read Aloud (TTS)](https://github.com/kl3mta3/FishTalk/blob/main/Images/Read%20Aloud.png)
-![Transcribe (STT)](https://github.com/kl3mta3/FishTalk/blob/main/Images/Transcribe.png)
-![Voice Lab (Cloning)](https://github.com/kl3mta3/FishTalk/blob/main/Images/Voice%20Lab.png)
+![Read Aloud (TTS)](https://github.com/kl3mta3/KoKoFish/blob/main/Images/Read%20Aloud.png)
+![Transcribe (STT)](https://github.com/kl3mta3/KoKoFish/blob/main/Images/Transcribe.png)
+![Voice Lab (Cloning)](https://github.com/kl3mta3/KoKoFish/blob/main/Images/Voice%20Lab.png)
 ![Settings](https://github.com/kl3mta3/SphereSSL/blob/main/Images/Settings.png)
 
 ---
@@ -76,17 +76,17 @@ FishTalk is a desktop text-to-speech application built for Windows. It supports 
 
 #Easy Install:
 1. Download and extract FiahTalk-Lite
-2. Run FishTalk.exe.  This will when needed install dependencies. 
+2. Run KoKoFish.exe.  This will when needed install dependencies. 
 
 ```
 (Kokoro on first run and Fish Speech when you switch to them the first time.) 
 ```
 
 #Offline Install:
-1. Download and extract FishTalk-Kokoro_Only
-2. Download and extract Model-fish-speech-1.4 inside the FishTalk folder
-3. Download and extract Model-fish-speech-1.5 inside the FishTalk folder
-4. Run FishTalk.exe. It will still install Python from the included installer
+1. Download and extract KoKoFish-Kokoro_Only
+2. Download and extract Model-fish-speech-1.4 inside the KoKoFish folder
+3. Download and extract Model-fish-speech-1.5 inside the KoKoFish folder
+4. Run KoKoFish.exe. It will still install Python from the included installer
 
 ```
 (If you miss any of these and have an internet connection it will grab them when you switch to them the first time.)
@@ -96,8 +96,8 @@ FishTalk is a desktop text-to-speech application built for Windows. It supports 
 1. Clone this repository:
 
 ```
-git clone https://github.com/kl3mta3/FishTalk.git
-cd FishTalk
+git clone https://github.com/kl3mta3/KoKoFish.git
+cd KoKoFish
 ```
 
 2. Create a virtual environment and install dependencies:
@@ -149,7 +149,7 @@ To enable CUDA, go to Settings and toggle the CUDA option. The application will 
 ## Project Structure
 
 ```
-FishTalk/
+KoKoFish/
   main.py              -- application entry point and startup logic
   ui.py                -- main window, tabs, and event handlers
   tts_engine.py        -- Fish-Speech TTS engine wrapper

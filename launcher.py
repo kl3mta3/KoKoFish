@@ -1,5 +1,5 @@
 """
-FishTalk — Auto-Launcher & Setup UI.
+KoKoFish — Auto-Launcher & Setup UI.
 
 This file uses ONLY built-in Python libraries (tkinter, os, subprocess)
 so it can run on a completely bare Python installation.
@@ -58,7 +58,7 @@ class InstallerGUI(tk.Tk):
     def __init__(self):
         super().__init__()
         
-        self.title("FishTalk Setup")
+        self.title("KoKoFish Setup")
         self.geometry("450x250")
         self.configure(bg="#0f0f1a")
         
@@ -71,7 +71,7 @@ class InstallerGUI(tk.Tk):
         
         # UI Elements
         tk.Label(
-            self, text="🐟 FishTalk", font=("Segoe UI", 28, "bold"),
+            self, text="🐟 KoKoFish", font=("Segoe UI", 28, "bold"),
             bg="#0f0f1a", fg="#6c83f7"
         ).pack(pady=(40, 5))
         
@@ -125,8 +125,8 @@ class InstallerGUI(tk.Tk):
         if not system_python:
             wants_install = messagebox.askyesno(
                 "Python Required", 
-                "FishTalk requires Python (v3.11+) which was not found on your system.\n\n"
-                "Would you like FishTalk to smoothly download and install Python 3.11 for you right now?\n"
+                "KoKoFish requires Python (v3.11+) which was not found on your system.\n\n"
+                "Would you like KoKoFish to smoothly download and install Python 3.11 for you right now?\n"
                 "(It installs cleanly to your local user folder without requiring Admin privileges)"
             )
             if not wants_install:
@@ -141,7 +141,7 @@ class InstallerGUI(tk.Tk):
                 if wants_install:
                     self.update_status("Downloading Python 3.11... (This may take a minute)")
                     installer_url = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
-                    installer_path = os.path.join(tempfile.gettempdir(), "python-3.11.9-amd64-fishtalk.exe")
+                    installer_path = os.path.join(tempfile.gettempdir(), "python-3.11.9-amd64-kokofish.exe")
                     
                     try:
                         urllib.request.urlretrieve(installer_url, installer_path)
@@ -181,7 +181,7 @@ class InstallerGUI(tk.Tk):
                 with open(SETUP_MARKER, "w") as f:
                     f.write("setup_complete")
                 
-                self.update_status("Setup complete! Starting FishTalk...")
+                self.update_status("Setup complete! Starting KoKoFish...")
                 self.after(1000, launch_main_app)
                 
             except Exception as e:

@@ -1,5 +1,5 @@
 """
-FishTalk — Voice Manager.
+KoKoFish — Voice Manager.
 
 Manages voice profiles stored in the /voices directory.
 Handles zero-shot voice cloning by saving reference WAV files and
@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-logger = logging.getLogger("FishTalk.voices")
+logger = logging.getLogger("KoKoFish.voices")
 
 
 class VoiceManager:

@@ -1,5 +1,5 @@
 """
-FishTalk — STT (Speech-to-Text) Engine.
+KoKoFish — STT (Speech-to-Text) Engine.
 
 Wraps faster-whisper with background threading and real-time segment callbacks.
 The GUI thread is never blocked.
@@ -11,7 +11,7 @@ import os
 import threading
 from typing import Callable, Optional
 
-logger = logging.getLogger("FishTalk.stt")
+logger = logging.getLogger("KoKoFish.stt")
 
 
 class STTEngine:

@@ -1,5 +1,5 @@
 """
-FishTalk — Uninstaller
+KoKoFish — Uninstaller
 
 Deletes the venv and other heavy files to free up space.
 Gives the user the option to either:
@@ -18,7 +18,7 @@ class UninstallerGUI(tk.Tk):
     def __init__(self):
         super().__init__()
         
-        self.title("Uninstall FishTalk")
+        self.title("Uninstall KoKoFish")
         self.geometry("450x250")
         self.configure(bg="#0f0f1a")
         
@@ -31,12 +31,12 @@ class UninstallerGUI(tk.Tk):
         
         # UI Elements
         tk.Label(
-            self, text="🐟 FishTalk Uninstaller", font=("Segoe UI", 24, "bold"),
+            self, text="🐟 KoKoFish Uninstaller", font=("Segoe UI", 24, "bold"),
             bg="#0f0f1a", fg="#ef476f"
         ).pack(pady=(30, 5))
         
         tk.Label(
-            self, text="Do you want to completely remove FishTalk?", font=("Segoe UI", 12),
+            self, text="Do you want to completely remove KoKoFish?", font=("Segoe UI", 12),
             bg="#0f0f1a", fg="#e8e8f0"
         ).pack(pady=(0, 20))
         
@@ -65,7 +65,7 @@ class UninstallerGUI(tk.Tk):
     def full_uninstall(self):
         confirm = messagebox.askyesno(
             "Confirm Uninstall",
-            "This will delete ALL FishTalk files in this folder, including:\n"
+            "This will delete ALL KoKoFish files in this folder, including:\n"
             "- The ~3GB Virtual Environment\n"
             "- Downloaded AI Models\n"
             "- Your custom Voice Profiles\n"
@@ -86,7 +86,7 @@ class UninstallerGUI(tk.Tk):
         self.force_delete_dir(weights)
         
         # Delete settings & setup cache
-        for f in ["settings.json", ".setup_complete", "requirements.txt", "FishTalk.bat", "FishTalk.ps1", "FishTalk.exe", "launcher.py", "Uninstall_FishTalk.py", "main.py", "ui.py", "tts_engine.py", "stt_engine.py", "voice_manager.py", "settings.py", "utils.py", "cuda_setup.py", "setup_ffmpeg.py"]:
+        for f in ["settings.json", ".setup_complete", "requirements.txt", "KoKoFish.bat", "KoKoFish.ps1", "KoKoFish.exe", "launcher.py", "Uninstall_KoKoFish.py", "main.py", "ui.py", "tts_engine.py", "stt_engine.py", "voice_manager.py", "settings.py", "utils.py", "cuda_setup.py", "setup_ffmpeg.py"]:
             path = os.path.join(APP_DIR, f)
             if os.path.exists(path):
                 try:
@@ -94,7 +94,7 @@ class UninstallerGUI(tk.Tk):
                 except:
                     pass
                     
-        messagebox.showinfo("Uninstall Complete", "FishTalk has been successfully uninstalled.\n\nYou can now delete this folder.")
+        messagebox.showinfo("Uninstall Complete", "KoKoFish has been successfully uninstalled.\n\nYou can now delete this folder.")
         self.destroy()
 
 

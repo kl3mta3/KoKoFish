@@ -1,5 +1,5 @@
 """
-FishTalk — Main entry point.
+KoKoFish — Main entry point.
 
 Launches the splash screen, initializes engines, and shows the main UI.
 """
@@ -20,7 +20,7 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "backend:cudaMallocAsync")
 log_handlers = []
 if sys.stdout is None:
     # Running under pythonw / no console. Redirect stdout/stderr to log file to prevent crashes.
-    log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fishtalk_error.log")
+    log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kokofish_error.log")
     f = open(log_path, "a", encoding="utf-8")
     sys.stdout = f
     sys.stderr = f
@@ -40,7 +40,7 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     handlers=log_handlers,
 )
-logger = logging.getLogger("FishTalk")
+logger = logging.getLogger("KoKoFish")
 
 # ---------------------------------------------------------------------------
 # App directory setup
@@ -86,12 +86,12 @@ def _check_dependencies():
 
     if missing:
         print("\n" + "=" * 60)
-        print("  FishTalk — Missing Dependencies")
+        print("  KoKoFish — Missing Dependencies")
         print("=" * 60)
         print(f"\n  The following packages are not installed:")
         for m in missing:
             print(f"    - {m}")
-        print(f"\n  Please run FishTalk.bat (or FishTalk.ps1) to")
+        print(f"\n  Please run KoKoFish.bat (or KoKoFish.ps1) to")
         print(f"  automatically install everything.")
         print(f"\n  Or install manually:")
         print(f"    pip install -r requirements.txt")
@@ -125,7 +125,7 @@ from tts_engine import TTSEngine
 from kokoro_engine import KokoroEngine
 from stt_engine import STTEngine
 from voice_manager import VoiceManager
-from ui import FishTalkUI, COLORS, FONT_FAMILY
+from ui import KoKoFishUI, COLORS, FONT_FAMILY
 
 
 # ============================================================================
@@ -170,7 +170,7 @@ class SplashScreen:
 
         ctk.CTkLabel(
             frame,
-            text="FishTalk",
+            text="KoKoFish",
             font=(FONT_FAMILY, 32, "bold"),
             text_color="#6c83f7",
         ).pack(pady=(0, 2))
@@ -231,7 +231,7 @@ class SplashScreen:
 # APP BOOTSTRAP
 # ============================================================================
 
-class FishTalkApp:
+class KoKoFishApp:
     """Main application controller."""
 
     def __init__(self):
@@ -239,7 +239,7 @@ class FishTalkApp:
         self.tts: TTSEngine = None
         self.stt: STTEngine = None
         self.voice_manager: VoiceManager = None
-        self.ui: FishTalkUI = None
+        self.ui: KoKoFishUI = None
 
     def run(self):
         """Start the application."""
@@ -291,7 +291,7 @@ class FishTalkApp:
         splash_container.pack(fill="both", expand=True, padx=2, pady=2)
 
         ctk.CTkLabel(splash_container, text="🐟", font=(FONT_FAMILY, 56)).pack(pady=(40, 5))
-        ctk.CTkLabel(splash_container, text="FishTalk", font=(FONT_FAMILY, 32, "bold"),
+        ctk.CTkLabel(splash_container, text="KoKoFish", font=(FONT_FAMILY, 32, "bold"),
                      text_color="#6c83f7").pack(pady=(0, 2))
         ctk.CTkLabel(splash_container, text="TTS/STT Studio",
                      font=(FONT_FAMILY, 13), text_color="#9a9ab0").pack(pady=(0, 25))
@@ -460,7 +460,11 @@ class FishTalkApp:
                     is_qwen_model_ready as _qwen_ready,
                     install_llama_cpp as _install_llama,
                     download_qwen_model as _dl_qwen,
+                    set_llm_gpu_mode as _set_llm_gpu,
                 )
+                # Allow LLM to use GPU when CUDA is enabled.
+                # S1/S1mini TTS will call unload_llm() before generation to free VRAM.
+                _set_llm_gpu(bool(getattr(self.settings, "use_cuda", False)))
 
                 if not _llm_avail():
                     update_splash("Installing AI features (~60 MB)…", 0.66)
@@ -536,7 +540,7 @@ class FishTalkApp:
             logger.error("Fatal initialization error: %s", init_error[0])
             import tkinter.messagebox as mb
             mb.showerror(
-                "FishTalk — Startup Error",
+                "KoKoFish — Startup Error",
                 f"An error occurred during initialization:\n\n{init_error[0]}\n\n"
                 "The app will launch but some features may not work."
             )
@@ -548,7 +552,7 @@ class FishTalkApp:
         main_root.withdraw()
         main_root.overrideredirect(False)
         main_root.attributes("-topmost", False)
-        main_root.title("FishTalk — TTS/STT Studio")
+        main_root.title("KoKoFish — TTS/STT Studio")
         main_root.geometry(self.settings.window_geometry)
         main_root.minsize(1024, 680)
         main_root.configure(fg_color=COLORS["bg_dark"])
@@ -567,7 +571,7 @@ class FishTalkApp:
             pass
 
         # Build UI
-        self.ui = FishTalkUI(
+        self.ui = KoKoFishUI(
             root=main_root,
             settings=self.settings,
             tts_engine=self.tts,
@@ -617,7 +621,7 @@ class FishTalkApp:
 
         main_root.bind("<Configure>", _on_configure)
 
-        logger.info("FishTalk is ready!")
+        logger.info("KoKoFish is ready!")
         main_root.mainloop()
 
 
@@ -626,5 +630,5 @@ class FishTalkApp:
 # ============================================================================
 
 if __name__ == "__main__":
-    app = FishTalkApp()
+    app = KoKoFishApp()
     app.run()

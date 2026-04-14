@@ -1,5 +1,5 @@
 """
-FishTalk — ffmpeg auto-download helper.
+KoKoFish — ffmpeg auto-download helper.
 
 Downloads ffmpeg essentials and extracts ffmpeg.exe to bin/.
 Called by the launcher during first-run setup.

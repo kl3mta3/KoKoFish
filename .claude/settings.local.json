@@ -21,7 +21,16 @@
       "Bash(grep -v \".pyc\\\\|venv\\\\|__pycache__\" find \"C:/Users/Kenny/source/repos/Fishtalk/fish-speech-1.5\" -name \"*.yaml\")",
       "Bash(xargs grep:*)",
       "Bash(grep -E \"\\\\.\\(txt|bat|ps1|cfg|toml|ini\\)$\")",
-      "Bash(grep -n \"Text Lab\\\\|tab_stt\\\\|_build.*stt\\\\|tab_transcrib\" C:\\\\\\\\Users\\\\\\\\Kenny\\\\\\\\source\\\\\\\\repos\\\\\\\\Fishtalk\\\\\\\\ui.py)"
+      "Bash(grep -n \"Text Lab\\\\|tab_stt\\\\|_build.*stt\\\\|tab_transcrib\" C:\\\\\\\\Users\\\\\\\\Kenny\\\\\\\\source\\\\\\\\repos\\\\\\\\Fishtalk\\\\\\\\ui.py)",
+      "Bash(python -c ':*)",
+      "Bash(python _patch_prompt_lab.py)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('ui.py', encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('tag_suggester.py', encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(del _patch_prompt_lab.py)",
+      "WebSearch",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('tag_suggester.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(ren \"Uninstall_FishTalk.py\" \"Uninstall_KoKoFish.py\")",
+      "Bash(python -c \"import os; os.rename\\(r'C:/Users/Kenny/source/repos/Fishtalk/Uninstall_FishTalk.py', r'C:/Users/Kenny/source/repos/Fishtalk/Uninstall_KoKoFish.py'\\); print\\('Renamed OK'\\)\")"
     ]
   }
 }

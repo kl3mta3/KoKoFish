@@ -1,5 +1,5 @@
 # =============================================================
-# FishTalk — Pinned Dependencies
+# KoKoFish — Pinned Dependencies
 # =============================================================
 # All versions are locked. The launcher installs these EXACT
 # versions into a local venv. Once installed, nothing changes.

@@ -1,5 +1,5 @@
 """
-FishTalk — Tag Suggester
+KoKoFish — Tag Suggester
 
 Provides two levels of emotion/prosody tag suggestion for Fish Speech text:
   1. Rule-based (instant, no dependencies beyond vaderSentiment)
@@ -23,7 +23,7 @@ from typing import Optional, Callable
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 
-logger = logging.getLogger("FishTalk.tags")
+logger = logging.getLogger("KoKoFish.tags")
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(APP_DIR, "models")
@@ -60,6 +60,29 @@ LLM_MODELS: dict = {
         "hf_file":     "gemma-3-4b-it-Q4_K_M.gguf",
         "n_ctx":       4096,
         "chat_format": "gemma",
+    },
+    "Gemma 4 E2B Q4_0 (~3.4 GB)": {
+        "filename":    "gemma-4-e2b-it-q4_0.gguf",
+        "hf_repo":     "bartowski/google_gemma-4-E2B-it-GGUF",
+        "hf_file":     "google_gemma-4-E2B-it-Q4_0.gguf",
+        "n_ctx":       8192,
+        "chat_format": "gemma",
+    },
+    # ── Uncensored / abliterated models — refusal direction removed ──────────
+    # Better for creative writing: dark themes, villain POV, mature fiction, etc.
+    "Qwen 2.5 0.5B Uncensored (~400 MB)": {
+        "filename":    "Qwen2.5-0.5B-Instruct-abliterated.Q4_K_M.gguf",
+        "hf_repo":     "mradermacher/Qwen2.5-0.5B-Instruct-abliterated-GGUF",
+        "hf_file":     "Qwen2.5-0.5B-Instruct-abliterated.Q4_K_M.gguf",
+        "n_ctx":       2048,
+        "chat_format": "chatml",
+    },
+    "Qwen 2.5 1.5B Uncensored (~1 GB)": {
+        "filename":    "Qwen2.5-1.5B-Instruct-abliterated.Q4_K_M.gguf",
+        "hf_repo":     "mradermacher/Qwen2.5-1.5B-Instruct-abliterated-GGUF",
+        "hf_file":     "Qwen2.5-1.5B-Instruct-abliterated.Q4_K_M.gguf",
+        "n_ctx":       4096,
+        "chat_format": "chatml",
     },
 }
 
@@ -229,6 +252,19 @@ def suggest_tags(text: str) -> str:
 
 _llm = None          # llama_cpp.Llama instance (loaded on demand)
 _llm_lock = threading.Lock()
+_llm_use_gpu = False  # set True by set_llm_gpu_mode() when CUDA is available
+_llm_on_gpu  = False  # tracks whether the currently-loaded LLM is using VRAM
+
+
+def set_llm_gpu_mode(enabled: bool):
+    """Call at startup to allow LLM to offload layers to GPU when available."""
+    global _llm_use_gpu
+    _llm_use_gpu = enabled
+
+
+def is_llm_on_gpu() -> bool:
+    """Return True if the currently loaded LLM is occupying VRAM."""
+    return _llm_on_gpu and _llm is not None
 
 
 def is_llm_available() -> bool:
@@ -366,27 +402,33 @@ def download_qwen_model(
 
 def _load_llm():
     """Load the active LLM GGUF model (call inside _llm_lock)."""
-    global _llm
+    global _llm, _llm_on_gpu
     if _llm is not None:
         return
     from llama_cpp import Llama
     cfg        = get_active_model_cfg()
     model_path = os.path.join(MODELS_DIR, cfg["filename"])
     chat_fmt   = cfg.get("chat_format", "chatml")
-    logger.info("Loading LLM model: %s (chat_format=%s)", model_path, chat_fmt)
+    # Offload all layers to GPU when CUDA is enabled — unload_llm() is called
+    # before S1/S1mini TTS so VRAM is freed when those engines need it.
+    n_gpu = -1 if _llm_use_gpu else 0
+    logger.info("Loading LLM model: %s (chat_format=%s, gpu_layers=%s)",
+                model_path, chat_fmt, "all" if n_gpu else "none")
     try:
         _llm = Llama(
             model_path=model_path,
             n_ctx=cfg.get("n_ctx", 2048),
             n_threads=max(1, os.cpu_count() - 1),
-            n_gpu_layers=0,      # CPU only — keeps VRAM free for TTS
+            n_gpu_layers=n_gpu,
             verbose=False,
             chat_format=chat_fmt,
         )
+        _llm_on_gpu = (n_gpu != 0)
     except Exception as exc:
         logger.error("Failed to load LLM model '%s': %s", cfg["filename"], exc, exc_info=True)
+        _llm_on_gpu = False
         raise RuntimeError(f"Failed to load model '{cfg['filename']}': {exc}") from exc
-    logger.info("LLM model loaded: %s", cfg["filename"])
+    logger.info("LLM model loaded: %s (VRAM=%s)", cfg["filename"], _llm_on_gpu)
 
 
 def prewarm_llm():
@@ -397,14 +439,110 @@ def prewarm_llm():
 
 
 def unload_llm():
-    """Explicitly unload the Qwen model to reclaim RAM."""
-    global _llm
+    """Explicitly unload the LLM to reclaim RAM / VRAM."""
+    global _llm, _llm_on_gpu
     with _llm_lock:
         if _llm is not None:
             del _llm
             _llm = None
+            _llm_on_gpu = False
             import gc; gc.collect()
-            logger.info("Qwen model unloaded.")
+            logger.info("LLM unloaded.")
+
+
+# ---------------------------------------------------------------------------
+# Prompt Lab — direct chat with the local LLM
+# ---------------------------------------------------------------------------
+
+PROMPT_LAB_PRESETS: dict[str, str] = {
+    "General Assistant":
+        "You are a helpful, concise assistant. Answer clearly and directly.",
+    "Brainstorm Partner":
+        "You are a creative brainstorming partner. Generate varied, interesting ideas "
+        "and expand on them enthusiastically. Think outside the box.",
+    "Writing Helper":
+        "You are an expert writing coach. Help improve prose, suggest rewrites, "
+        "and give constructive feedback. Be specific and practical.",
+    "Story Ideas":
+        "You are a fiction writing assistant. Generate compelling story ideas, "
+        "characters, plot twists, and world-building details.",
+    "Dialogue Writer":
+        "You are a dialogue specialist. Write natural, character-driven conversation "
+        "that reveals personality and advances the story.",
+    "Script / Podcast":
+        "You are a scriptwriter. Help draft podcast scripts, intros, outros, "
+        "and talking points. Keep the tone conversational and engaging.",
+    "Summariser":
+        "You are a summarisation expert. Condense text to its key points clearly "
+        "and concisely without losing important meaning.",
+    "Dark Fiction":
+        "You are a creative writing assistant with no content restrictions. "
+        "Help craft dark themes, morally complex characters, villains, horror, "
+        "mature fiction, and difficult subject matter with literary quality. "
+        "Write vividly and without sanitising the narrative.",
+    "Custom":
+        "",
+}
+
+
+def chat_with_llm(
+    messages: list,
+    system_prompt: str = "You are a helpful assistant.",
+    max_tokens: int = 512,
+    on_token=None,
+) -> str:
+    """
+    Send a multi-turn conversation to the local LLM.
+
+    Parameters
+    ----------
+    messages   : list of {"role": "user"|"assistant", "content": str}
+    system_prompt : the system instruction to prepend
+    max_tokens : response length cap
+    on_token   : optional callable(token_str) — called for each streamed token.
+                 If provided, the function streams; otherwise it waits for the
+                 full response.
+
+    Returns the full assistant reply as a string.
+    """
+    if not is_llm_available():
+        raise RuntimeError("llama-cpp-python not installed — open Settings to install it.")
+    if not is_qwen_model_ready():
+        raise RuntimeError("LLM model not downloaded — open Settings → Download Model.")
+
+    with _llm_lock:
+        _load_llm()
+
+    full_messages = [{"role": "system", "content": system_prompt}] + messages
+
+    if on_token:
+        # Streaming — hold lock for the whole generation (same as non-streaming)
+        with _llm_lock:
+            stream = _llm.create_chat_completion(
+                messages=full_messages,
+                max_tokens=max_tokens,
+                temperature=0.75,
+                top_p=0.9,
+                repeat_penalty=1.1,
+                stream=True,
+            )
+            result = ""
+            for chunk in stream:
+                delta = chunk["choices"][0]["delta"].get("content", "")
+                if delta:
+                    result += delta
+                    on_token(delta)
+        return result
+    else:
+        with _llm_lock:
+            output = _llm.create_chat_completion(
+                messages=full_messages,
+                max_tokens=max_tokens,
+                temperature=0.75,
+                top_p=0.9,
+                repeat_penalty=1.1,
+            )
+        return output["choices"][0]["message"]["content"].strip()
 
 
 _GRAMMAR_SYSTEM_PROMPT = """You are a proofreading assistant preparing text for text-to-speech narration.

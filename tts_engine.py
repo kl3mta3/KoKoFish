@@ -1,5 +1,5 @@
 """
-FishTalk — TTS (Text-to-Speech) Engine.
+KoKoFish — TTS (Text-to-Speech) Engine.
 
 Wraps Fish-Speech using direct Python imports from the locally bundled repo.
 Uses the 3-stage pipeline: encode reference → generate semantic tokens → decode to audio.
@@ -19,7 +19,7 @@ from typing import Callable, List, Optional
 import numpy as np
 import soundfile as sf
 
-logger = logging.getLogger("FishTalk.tts")
+logger = logging.getLogger("KoKoFish.tts")
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +280,7 @@ class TTSEngine:
                     if not os.path.isdir(oa_code):
                         raise RuntimeError(
                             "fish-speech-latest directory not found.\n"
-                            "Re-run the FishTalk installer to download it."
+                            "Re-run the KoKoFish installer to download it."
                         )
                     # Ensure fish-speech-latest is at the front of sys.path.
                     # Fish 1.4 code is also on sys.path and its fish_speech package
@@ -678,78 +678,84 @@ class TTSEngine:
                 # Accumulate decoded audio chunks rather than raw codes so we never
                 # hold the entire chapter's VQ codes in memory or run a single
                 # giant decode at the end (avoids OOM on long chapters).
-                audio_chunks = []
+                # Capture model/codec refs under a brief lock, then release.
+                # Holding the lock for the entire generate_long loop (minutes)
+                # blocks is_loaded() on the main thread and freezes the UI.
                 with self._lock:
-                    # Build kwargs common to both Fish14 and S1Mini generate_long signatures.
-                    # fish-speech-latest removed max_length and added top_k.
-                    _gen_kwargs = dict(
-                        model=self._model,
-                        device=self.device,
-                        decode_one_token=self._decode_one_token,
-                        text=text_norm,
-                        num_samples=1,
-                        max_new_tokens=0,
-                        top_p=self.top_p,
-                        repetition_penalty=self.repetition_penalty,
-                        temperature=self.temperature,
-                        compile=False,
-                        iterative_prompt=True,
-                        chunk_length=int(self.chunk_length),
-                        prompt_text=prompt_text_list,
-                        prompt_tokens=prompt_tokens_list,
-                    )
-                    # Fish14's generate_long uses max_length; latest uses top_k instead
-                    import inspect as _inspect
-                    _gl_sig = _inspect.signature(generate_long).parameters
-                    if "max_length" in _gl_sig:
-                        _gen_kwargs["max_length"] = self._model.config.max_seq_len
-                    if "top_k" in _gl_sig:
-                        _gen_kwargs["top_k"] = 30
+                    _model_ref          = self._model
+                    _codec_ref          = self._codec
+                    _decode_fn_ref      = self._decode_one_token
+                    _is_openaudio       = self._is_openaudio_engine
+                    _codec_dev          = self._codec_device
 
-                    generator = generate_long(**_gen_kwargs)
+                # Build kwargs common to both Fish14 and S1Mini generate_long.
+                # fish-speech-latest removed max_length and added top_k.
+                import inspect as _inspect
+                _gl_sig = _inspect.signature(generate_long).parameters
+                _gen_kwargs = dict(
+                    model=_model_ref,
+                    device=self.device,
+                    decode_one_token=_decode_fn_ref,
+                    text=text_norm,
+                    num_samples=1,
+                    max_new_tokens=0,
+                    top_p=self.top_p,
+                    repetition_penalty=self.repetition_penalty,
+                    temperature=self.temperature,
+                    compile=False,
+                    iterative_prompt=True,
+                    chunk_length=int(self.chunk_length),
+                    prompt_text=prompt_text_list,
+                    prompt_tokens=prompt_tokens_list,
+                )
+                if "max_length" in _gl_sig:
+                    _gen_kwargs["max_length"] = _model_ref.config.max_seq_len
+                if "top_k" in _gl_sig:
+                    _gen_kwargs["top_k"] = 30
 
-                    for response in generator:
-                        if self._cancel_event.is_set():
-                            logger.info("TTS generation cancelled.")
-                            return
+                # Run generation WITHOUT holding the lock so is_loaded() and
+                # other main-thread calls can proceed normally.
+                audio_chunks = []
+                generator = generate_long(**_gen_kwargs)
 
-                        if response.action == "sample":
-                            if on_progress:
-                                on_progress("Generating speech...", 0.6)
+                for response in generator:
+                    if self._cancel_event.is_set():
+                        logger.info("TTS generation cancelled.")
+                        return
 
-                            # Decode each chunk immediately — used for both
-                            # streaming playback and final file assembly.
-                            # Fish14 (Firefly) uses .decode(indices=..., feature_lengths=...)
-                            # S1Mini (DAC) uses .from_indices(codes[None]) → audio
-                            try:
-                                # Route codes to the codec's device.
-                                # OpenAudio DAC codec lives on CPU; Fish14 Firefly on GPU.
-                                chunk_codes = response.codes.to(self._codec_device)
-                                with torch.no_grad():
-                                    if self._is_openaudio_engine:
-                                        # DAC: from_indices expects [B, N, T] — runs on CPU
-                                        chunk_audio = self._codec.from_indices(
-                                            chunk_codes[None]
-                                        )[0, 0]
-                                    else:
-                                        # Firefly: decode expects named args — runs on GPU
-                                        chunk_lengths = torch.tensor(
-                                            [chunk_codes.shape[1]],
-                                            device=self._codec_device,
-                                        )
-                                        chunk_audio = self._codec.decode(
-                                            indices=chunk_codes[None],
-                                            feature_lengths=chunk_lengths,
-                                        )[0].squeeze()
-                                chunk_np = chunk_audio.cpu().detach().float().numpy()
-                                audio_chunks.append(chunk_np)
-                                if on_chunk:
-                                    on_chunk(chunk_np, self._codec_sample_rate)
-                            except Exception as ce:
-                                logger.warning("Chunk decode error (non-fatal): %s", ce)
+                    if response.action == "sample":
+                        if on_progress:
+                            on_progress("Generating speech...", 0.6)
 
-                        elif response.action == "next":
-                            break
+                        # Decode each chunk immediately — avoids holding the whole
+                        # chapter's VQ codes in memory and lets streaming work.
+                        try:
+                            chunk_codes = response.codes.to(_codec_dev)
+                            with torch.no_grad():
+                                if _is_openaudio:
+                                    # DAC: from_indices expects [B, N, T] — runs on CPU
+                                    chunk_audio = _codec_ref.from_indices(
+                                        chunk_codes[None]
+                                    )[0, 0]
+                                else:
+                                    # Firefly: decode expects named args — runs on GPU
+                                    chunk_lengths = torch.tensor(
+                                        [chunk_codes.shape[1]],
+                                        device=_codec_dev,
+                                    )
+                                    chunk_audio = _codec_ref.decode(
+                                        indices=chunk_codes[None],
+                                        feature_lengths=chunk_lengths,
+                                    )[0].squeeze()
+                            chunk_np = chunk_audio.cpu().detach().float().numpy()
+                            audio_chunks.append(chunk_np)
+                            if on_chunk:
+                                on_chunk(chunk_np, self._codec_sample_rate)
+                        except Exception as ce:
+                            logger.warning("Chunk decode error (non-fatal): %s", ce)
+
+                    elif response.action == "next":
+                        break
 
                 if not audio_chunks:
                     raise RuntimeError("No audio generated.")
@@ -788,7 +794,7 @@ class TTSEngine:
                 if output_path is None:
                     output_path = os.path.join(
                         tempfile.gettempdir(),
-                        f"fishtalk_tts_{int(time.time())}.wav"
+                        f"kokofish_tts_{int(time.time())}.wav"
                     )
 
                 sf.write(output_path, audio_np, sample_rate)

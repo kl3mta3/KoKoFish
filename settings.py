@@ -1,5 +1,5 @@
 """
-FishTalk — Application settings and configuration.
+KoKoFish — Application settings and configuration.
 
 Handles persistent settings (JSON), CUDA detection, GPU architecture
 probing, and Fish-Speech path validation.
@@ -10,7 +10,7 @@ import logging
 import os
 import sys
 
-logger = logging.getLogger("FishTalk.settings")
+logger = logging.getLogger("KoKoFish.settings")
 
 # Default settings values
 DEFAULTS = {

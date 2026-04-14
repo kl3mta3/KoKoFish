@@ -1,5 +1,5 @@
 """
-FishTalk — CUDA upgrade helper.
+KoKoFish — CUDA upgrade helper.
 
 Downloads and installs the CUDA-enabled PyTorch build,
 replacing the CPU-only version. Called from the Settings tab
@@ -15,7 +15,7 @@ from typing import Callable, Optional
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 
-logger = logging.getLogger("FishTalk.cuda_setup")
+logger = logging.getLogger("KoKoFish.cuda_setup")
 
 
 def get_venv_pip() -> str:
@@ -141,7 +141,7 @@ def install_cuda_pytorch(
             if "CUDA: True" in verify.stdout:
                 logger.info("CUDA PyTorch installed and verified!")
                 if on_complete:
-                    on_complete(True, "CUDA acceleration is now enabled!\nRestart FishTalk for full effect.")
+                    on_complete(True, "CUDA acceleration is now enabled!\nRestart KoKoFish for full effect.")
             else:
                 logger.warning("CUDA PyTorch installed but CUDA not available: %s", verify.stdout)
                 if on_complete:
@@ -197,7 +197,7 @@ def revert_to_cpu_pytorch(
 
             if result.returncode == 0:
                 if on_complete:
-                    on_complete(True, "Reverted to CPU mode. Restart FishTalk for full effect.")
+                    on_complete(True, "Reverted to CPU mode. Restart KoKoFish for full effect.")
             else:
                 if on_complete:
                     on_complete(False, f"Error: {result.stderr[-300:]}")

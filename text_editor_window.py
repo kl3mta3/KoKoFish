@@ -1,5 +1,5 @@
 """
-FishTalk — Playlist Item Text Editor Window
+KoKoFish — Playlist Item Text Editor Window
 
 Opens on double-click of a playlist item.  Provides:
   - Full text editor (edits item["text"] in-memory; original file untouched)
@@ -36,7 +36,7 @@ from tag_suggester import (
     unload_llm,
 )
 
-logger = logging.getLogger("FishTalk.editor")
+logger = logging.getLogger("KoKoFish.editor")
 
 
 class TextEditorWindow(ctk.CTkToplevel):

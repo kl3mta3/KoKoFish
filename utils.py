@@ -1,5 +1,5 @@
 """
-FishTalk — Utility functions.
+KoKoFish — Utility functions.
 
 Handles ffmpeg detection, file reading (txt/pdf/docx), audio export,
 document export, and system monitoring helpers.
@@ -18,7 +18,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 
-logger = logging.getLogger("FishTalk.utils")
+logger = logging.getLogger("KoKoFish.utils")
 
 # ---------------------------------------------------------------------------
 # FFmpeg setup
