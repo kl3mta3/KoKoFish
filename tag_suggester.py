@@ -673,8 +673,9 @@ _PROMPTS: dict = {
     "tone":       _TONE_SYSTEM_PROMPT_TEMPLATE,
     "translate":  (
         "You are a professional translator. "
-        "Translate to {target_language}{tone_clause}. "
-        "Output ONLY the translation. "
+        "If the text is already written in {target_language}, return it unchanged. "
+        "Otherwise translate it to {target_language}{tone_clause}. "
+        "Output ONLY the result — no explanations, no labels. "
         "Keep tags like (laugh) or [whisper] exactly as-is."
     ),
 }

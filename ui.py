@@ -467,7 +467,7 @@ class FishTalkUI:
             lang_frame.pack(side="left", padx=(16, 0))
             ctk.CTkLabel(
                 lang_frame,
-                text="Accent:",
+                text="Language:",
                 font=(FONT_FAMILY, 11),
                 text_color=COLORS["text_muted"],
             ).pack(side="left", padx=(0, 4))
@@ -3853,16 +3853,25 @@ class FishTalkUI:
             ).pack(side="left", padx=(0, 2))
 
             # ── Index + filename (double-click opens editor) ─────────────
+            _MAX_NAME = 32
+            _full_name = item['name']
+            _short_name = (
+                _full_name[:_MAX_NAME] + "…"
+                if len(_full_name) > _MAX_NAME else _full_name
+            )
             name_lbl = ctk.CTkLabel(
                 row,
-                text=f"{idx + 1}. {item['name']}",
+                text=f"{idx + 1}. {_short_name}",
                 font=(FONT_FAMILY, 12),
                 text_color=txt_color,
                 anchor="w",
                 cursor="hand2",
+                width=240,
             )
             name_lbl.pack(side="left", padx=(0, 2))
             name_lbl.bind("<Double-Button-1>", lambda e, i=idx: self._open_editor(i))
+            if len(_full_name) > _MAX_NAME:
+                self._make_tooltip(name_lbl, _full_name)
 
             ctk.CTkLabel(
                 row,
