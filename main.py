@@ -301,18 +301,25 @@ class FishTalkApp:
         ctk.CTkLabel(splash_container, text="v1.4.5", font=(FONT_FAMILY, 10),
                      text_color="#3a3a5a").pack(side="bottom", pady=10)
 
+        import queue as _queue
+        _splash_q = _queue.Queue()
+
         def update_splash(status, progress):
-            """Thread-safe splash update — schedules on the main thread via after()."""
+            """Push a splash update from any thread — never touches tkinter directly."""
             try:
-                def _do(_s=status, _p=progress):
-                    try:
-                        splash_status.configure(text=_s)
-                        splash_progress.set(_p)
-                    except Exception:
-                        pass
-                main_root.after(0, _do)
+                _splash_q.put_nowait((status, progress))
             except Exception:
                 pass
+
+        def _pulse(label: str, from_val: float, to_val: float,
+                   stop_evt: threading.Event, interval: float = 0.22):
+            """Slowly push progress updates while a slow operation runs."""
+            val = from_val
+            step = (to_val - from_val) / 14
+            while not stop_evt.is_set() and val < to_val - step:
+                val += step
+                update_splash(label, val)
+                stop_evt.wait(interval)
 
         main_root.update()
 
@@ -322,49 +329,62 @@ class FishTalkApp:
 
         def _init():
             try:
-                update_splash("Checking FFmpeg...", 0.1)
+                # ── FFmpeg ───────────────────────────────────────────────────
+                update_splash("Checking FFmpeg…", 0.03)
                 setup_ffmpeg(on_progress=update_splash)
+                update_splash("FFmpeg ready", 0.07)
 
                 _engine = getattr(self.settings, 'engine', 'kokoro')
 
-                # ── Kokoro: auto-download if missing (always auto-downloaded) ──
+                # ── Engine model check / download ────────────────────────────
                 if _engine == 'kokoro':
                     if not is_kokoro_ready():
-                        update_splash("Downloading Kokoro models (~330 MB)…", 0.15)
+                        update_splash("Downloading Kokoro models (~330 MB)…", 0.10)
                         ok = setup_kokoro(on_progress=update_splash)
                         if ok:
                             logger.info("Kokoro models downloaded successfully.")
+                            update_splash("Kokoro models downloaded", 0.22)
                         else:
                             logger.warning("Kokoro model download failed; engine may not load.")
+                            update_splash("Kokoro download failed — will retry on use", 0.22)
                     else:
-                        update_splash("Kokoro ready.", 0.2)
+                        update_splash("Kokoro models found", 0.12)
                         logger.info("Engine: Kokoro (models present)")
-
-                # ── Fish Speech engines: validate only — download happens on first use ──
                 else:
-                    _fs_path = os.path.join(APP_DIR, "fish-speech")
+                    _fs_path  = os.path.join(APP_DIR, "fish-speech")
                     _ckpt_name = FISH_ENGINE_CONFIG.get(_engine, FISH_ENGINE_CONFIG["fish14"])[0]
-                    update_splash(f"Checking {_engine} models…", 0.15)
+                    _eng_labels = {"fish14": "Fish-Speech 1.4", "s1mini": "S1 Mini", "s1": "S1 Full"}
+                    _eng_label  = _eng_labels.get(_engine, _engine)
+                    update_splash(f"Checking {_eng_label} models…", 0.10)
 
                     if is_fish_speech_ready(_engine):
                         self.settings.fish_speech_path = _fs_path
                         self.settings.checkpoint_name  = f"checkpoints/{_ckpt_name}"
                         self.settings.save()
+                        update_splash(f"{_eng_label} models found", 0.18)
                         logger.info("Engine: %s (checkpoints present)", _engine)
                     else:
-                        logger.info("Engine: %s — checkpoints not yet downloaded (first-use download).", _engine)
+                        update_splash(f"{_eng_label} not downloaded — select in Settings to get it", 0.18)
+                        logger.info("Engine: %s — not yet downloaded (first-use download).", _engine)
 
-                update_splash("Initializing voice manager...", 0.2)
-                # Ensure voice subdirs for all engines exist so switching never
-                # hits a missing-folder error.  Fish Speech 1.5 removed.
+                # ── Voice folders ────────────────────────────────────────────
+                update_splash("Setting up voice folders…", 0.23)
                 for _subdir in ("kokoro", "fish14", "s1mini", "s1"):
                     os.makedirs(os.path.join(VOICES_DIR, _subdir), exist_ok=True)
                 _eng = getattr(self.settings, 'engine', 'kokoro')
                 voices_subdir = os.path.join(VOICES_DIR, _eng)
                 self.voice_manager = VoiceManager(voices_subdir)
+                update_splash("Voice profiles loaded", 0.27)
 
-
-                update_splash("Initializing STT engine...", 0.3)
+                # ── STT engine (Whisper — can take a moment to init) ─────────
+                update_splash("Starting speech recognition…", 0.30)
+                _stt_stop = threading.Event()
+                _stt_pulse = threading.Thread(
+                    target=_pulse,
+                    args=("Starting speech recognition…", 0.30, 0.44, _stt_stop),
+                    daemon=True,
+                )
+                _stt_pulse.start()
                 device = get_device(self.settings)
                 compute_type = "float16" if device == "cuda" else "int8"
                 self.stt = STTEngine(
@@ -372,21 +392,45 @@ class FishTalkApp:
                     device=device,
                     compute_type=compute_type,
                 )
+                _stt_stop.set()
+                _stt_pulse.join()
+                update_splash("Speech recognition ready", 0.45)
 
-                update_splash("Initializing TTS engine...", 0.4)
+                # ── TTS engine (ONNX / Fish-Speech — can take several seconds) ─
                 _engine_type = getattr(self.settings, 'engine', 'fish14')
                 if _engine_type == 'kokoro':
-                    update_splash("Booting Kokoro engine...", 0.4)
+                    update_splash("Loading Kokoro voice engine…", 0.48)
+                    _tts_stop = threading.Event()
+                    _tts_pulse = threading.Thread(
+                        target=_pulse,
+                        args=("Loading Kokoro voice engine…", 0.48, 0.62, _tts_stop),
+                        daemon=True,
+                    )
+                    _tts_pulse.start()
                     self.tts = KokoroEngine()
+                    _tts_stop.set()
+                    _tts_pulse.join()
+                    update_splash("Kokoro engine ready", 0.63)
                 else:
-                    update_splash("Booting Fish-Speech engine...", 0.4)
+                    _tts_label = _eng_labels.get(_engine_type, "TTS")
+                    update_splash(f"Loading {_tts_label} engine…", 0.48)
+                    _tts_stop = threading.Event()
+                    _tts_pulse = threading.Thread(
+                        target=_pulse,
+                        args=(f"Loading {_tts_label} engine…", 0.48, 0.62, _tts_stop),
+                        daemon=True,
+                    )
+                    _tts_pulse.start()
                     self.tts = TTSEngine(
                         fish_speech_path=self.settings.fish_speech_path or get_bundled_fish_speech_path(),
                         device=device,
                         checkpoint_name=self.settings.checkpoint_name,
                     )
+                    _tts_stop.set()
+                    _tts_pulse.join()
+                    update_splash(f"{_tts_label} engine ready", 0.63)
 
-                # --- Auto-install AI features (llama-cpp-python + Qwen model) ---
+                # ── AI features (llama-cpp-python + Qwen) ───────────────────
                 from tag_suggester import (
                     is_llm_available as _llm_avail,
                     is_qwen_model_ready as _qwen_ready,
@@ -395,7 +439,7 @@ class FishTalkApp:
                 )
 
                 if not _llm_avail():
-                    update_splash("Installing AI features (llama-cpp-python ~60 MB)…", 0.65)
+                    update_splash("Installing AI features (~60 MB)…", 0.66)
                     _llama_done = threading.Event()
                     _llama_ok = [False]
 
@@ -407,16 +451,20 @@ class FishTalkApp:
                     _llama_done.wait()
                     if _llama_ok[0]:
                         logger.info("llama-cpp-python installed successfully.")
+                        update_splash("AI features installed", 0.70)
                     else:
                         logger.warning("llama-cpp-python install failed; AI features unavailable.")
+                        update_splash("AI install failed — Assisted Flow unavailable", 0.70)
+                else:
+                    update_splash("AI features ready", 0.68)
 
                 if _llm_avail() and not _qwen_ready():
-                    update_splash("Downloading Qwen AI model (~400 MB)…", 0.75)
+                    update_splash("Downloading Qwen AI model (~400 MB)…", 0.72)
                     _qwen_done = threading.Event()
                     _qwen_ok = [False]
 
                     def _on_qwen_progress(status, frac):
-                        update_splash(status, 0.75 + frac * 0.2)
+                        update_splash(status, 0.72 + frac * 0.22)
 
                     def _on_qwen_complete(ok, msg, _ev=_qwen_done, _res=_qwen_ok):
                         _res[0] = ok
@@ -426,11 +474,15 @@ class FishTalkApp:
                     _qwen_done.wait()
                     if _qwen_ok[0]:
                         logger.info("Qwen model downloaded successfully.")
+                        update_splash("Qwen model ready", 0.94)
                     else:
                         logger.warning("Qwen model download failed; AI features unavailable.")
+                        update_splash("Qwen download failed — AI features unavailable", 0.94)
+                elif _llm_avail():
+                    update_splash("Qwen model ready", 0.94)
 
                 update_splash("Ready!", 1.0)
-                time.sleep(0.5)
+                time.sleep(0.4)
 
             except Exception as exc:
                 logger.error("Initialization failed: %s", exc, exc_info=True)
@@ -441,10 +493,20 @@ class FishTalkApp:
         init_thread = threading.Thread(target=_init, daemon=True, name="Init")
         init_thread.start()
 
-        # Wait for init (keep splash responsive)
+        # Wait for init — drain the splash queue and keep tkinter responsive
         while not init_done.is_set():
+            # Apply every pending splash update (show each one briefly)
+            try:
+                while True:
+                    _s, _p = _splash_q.get_nowait()
+                    splash_status.configure(text=_s)
+                    splash_progress.set(_p)
+                    main_root.update()
+                    time.sleep(0.08)   # pause so each message is readable
+            except _queue.Empty:
+                pass
             main_root.update()
-            time.sleep(0.05)
+            time.sleep(0.03)
 
         if init_error[0]:
             logger.error("Fatal initialization error: %s", init_error[0])

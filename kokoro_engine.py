@@ -163,6 +163,35 @@ _PREFIX_TO_LANGNAME: dict[str, str] = {
     "zf": "Mandarin Chinese",  "zm": "Mandarin Chinese",
     "kf": "Korean",            "km": "Korean",
 }
+
+# voice ID prefix → kokoro-onnx lang code passed to create()
+_LANG_CODE_FROM_PREFIX: dict[str, str] = {
+    "af": "en-us", "am": "en-us",
+    "bf": "en-gb", "bm": "en-gb",
+    "jf": "ja",    "jm": "ja",
+    "ef": "es",    "em": "es",
+    "ff": "fr",    "fm": "fr",
+    "hf": "hi",    "hm": "hi",
+    "if": "it",    "im": "it",
+    "pf": "pt-br", "pm": "pt-br",
+    "zf": "zh",    "zm": "zh",
+    "kf": "ko",    "km": "ko",
+}
+
+# CJK and other phoneme-dense scripts need smaller chunks to stay under the
+# 510-phoneme limit. English/Latin scripts are fine at 350 chars.
+_MAX_CHARS_FROM_PREFIX: dict[str, int] = {
+    "af": 350, "am": 350,
+    "bf": 350, "bm": 350,
+    "jf": 100, "jm": 100,   # Japanese: ~3-5 phonemes/char
+    "ef": 280, "em": 280,
+    "ff": 280, "fm": 280,
+    "hf": 200, "hm": 200,
+    "if": 280, "im": 280,
+    "pf": 280, "pm": 280,
+    "zf": 80,  "zm": 80,    # Mandarin: most phoneme-dense
+    "kf": 150, "km": 150,
+}
 KOKORO_VOICE_LANG: dict[str, str] = {
     vid: _PREFIX_TO_LANGNAME[vid[:2]]
     for vid in KOKORO_VOICES.values()
@@ -456,8 +485,13 @@ class KokoroEngine:
                 vid = self.build_blend_voice(_vid, _bv, blend_ratio)
                 logger.info("Kokoro voice: %s", vid)
 
+                # Determine lang code and safe chunk size from voice ID prefix
+                _prefix    = _vid[:2]
+                _lang_code = _LANG_CODE_FROM_PREFIX.get(_prefix, "en-us")
+                _max_chars = _MAX_CHARS_FROM_PREFIX.get(_prefix, 350)
+
                 # Split into sentences for real-time streaming
-                sentences = self._split_sentences(text_norm)
+                sentences = self._split_sentences(text_norm, max_chars=_max_chars)
                 if not sentences:
                     sentences = [text_norm]
 
@@ -465,7 +499,8 @@ class KokoroEngine:
                 all_audio = []
                 sr = self.SAMPLE_RATE
 
-                logger.info("Kokoro: %d sentence(s) from %d chars", total, len(text_norm))
+                logger.info("Kokoro: %d sentence(s) from %d chars (lang=%s, max_chars=%d)",
+                            total, len(text_norm), _lang_code, _max_chars)
 
                 for i, sentence in enumerate(sentences):
                     if self._cancel_event.is_set():
@@ -478,7 +513,7 @@ class KokoroEngine:
                         )
 
                     samples, sr = self._kokoro.create(
-                        sentence, voice=vid, speed=speed, lang="en-us"
+                        sentence, voice=vid, speed=speed, lang=_lang_code
                     )
                     audio_np = samples.astype(np.float32)
                     all_audio.append(audio_np)

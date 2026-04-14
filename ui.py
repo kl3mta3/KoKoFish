@@ -400,28 +400,30 @@ class FishTalkUI:
         text_color=COLORS["text_secondary"],
         ).pack(side="left", padx=(5, 0))
 
-        # ── Kokoro language filter radios ─────────────────────────────────
+        # ── Kokoro language filter dropdown ───────────────────────────────
         if is_kokoro:
             lang_frame = ctk.CTkFrame(playlist_header, fg_color="transparent")
-            lang_frame.pack(side="left", padx=(20, 0))
+            lang_frame.pack(side="left", padx=(16, 0))
             ctk.CTkLabel(
                 lang_frame,
                 text="Accent:",
                 font=(FONT_FAMILY, 11),
                 text_color=COLORS["text_muted"],
-            ).pack(side="left", padx=(0, 6))
-            for lang_key in KOKORO_LANGUAGE_GROUPS:
-                ctk.CTkRadioButton(
-                    lang_frame,
-                    text=lang_key,
-                    variable=self._kokoro_lang_var,
-                    value=lang_key,
-                    font=(FONT_FAMILY, 11),
-                    text_color=COLORS["text_secondary"],
-                    fg_color=COLORS["accent"],
-                    hover_color=COLORS["accent"],
-                    command=self._rebuild_playlist_ui,
-                ).pack(side="left", padx=(0, 10))
+            ).pack(side="left", padx=(0, 4))
+            ctk.CTkOptionMenu(
+                lang_frame,
+                variable=self._kokoro_lang_var,
+                values=list(KOKORO_LANGUAGE_GROUPS.keys()),
+                width=145,
+                height=26,
+                fg_color=COLORS["bg_input"],
+                button_color=COLORS["accent"],
+                button_hover_color=COLORS["accent_hover"],
+                dropdown_fg_color=COLORS["bg_card"],
+                dropdown_hover_color=COLORS["bg_card_hover"],
+                font=(FONT_FAMILY, 11),
+                command=lambda _: self._rebuild_playlist_ui(),
+            ).pack(side="left")
 
         # Read All button — only batch control in the header now
         self.btn_play = ctk.CTkButton(
@@ -1474,6 +1476,7 @@ class FishTalkUI:
                 "assisted_flow": False,
                 "translate": False,
                 "translate_lang": "",
+                "translate_tone": "Natural",
             }
             self._playlist_items.append(item)
             self._rebuild_playlist_ui()
@@ -1587,6 +1590,8 @@ class FishTalkUI:
             item_voice = item.get("voice", voice_options[0] if voice_options else "")
             if item_voice not in voice_options:
                 item_voice = voice_options[0] if voice_options else item_voice
+                # Keep the dict in sync so generation uses the correct voice
+                self._playlist_items[idx]["voice"] = item_voice
 
             voice_var = ctk.StringVar(value=item_voice)
 
@@ -1751,7 +1756,7 @@ class FishTalkUI:
                     )
                 else:
                     # Non-Kokoro: show language dropdown next to the toggle
-                    from tag_suggester import TRANSLATE_LANGUAGES
+                    from tag_suggester import TRANSLATE_LANGUAGES, TRANSLATE_TONES
                     saved_lang = item.get("translate_lang", "") or TRANSLATE_LANGUAGES[0]
                     tr_lang_var = ctk.StringVar(value=saved_lang)
 

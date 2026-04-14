@@ -646,8 +646,10 @@ TRANSLATE_LANGUAGES = [
     "English",
 ]
 
+TRANSLATE_TONES = ["Natural", "Formal", "Casual", "Professional"]
 
-def translate_for_voice(text: str, target_language: str) -> str:
+
+def translate_for_voice(text: str, target_language: str, tone: str = "Natural") -> str:
     """
     Translate text into target_language using Qwen.
 
@@ -664,13 +666,12 @@ def translate_for_voice(text: str, target_language: str) -> str:
         logger.warning("translate_for_voice: Qwen model not found.")
         return text
 
+    _tone_clause = f" with a {tone.lower()} tone" if tone and tone != "Natural" else ""
     system_prompt = (
         f"You are a professional translator. "
-        f"Translate the following text into {target_language}. "
-        f"Output ONLY the translated text — no explanations, no labels, no quotation "
-        f"marks around the full response, no original text alongside. "
-        f"Preserve paragraph breaks and punctuation style. "
-        f"If the text is already in {target_language}, return it exactly as-is."
+        f"Translate to {target_language}{_tone_clause}. "
+        f"Output ONLY the translation. "
+        f"Keep tags like (laugh) or [whisper] exactly as-is."
     )
 
     with _llm_lock:
@@ -681,9 +682,11 @@ def translate_for_voice(text: str, target_language: str) -> str:
     if not paragraphs:
         return text
 
+    logger.info("translate_for_voice: translating %d chars → %s [%s]", len(text), target_language, tone)
+
     result_parts = []
     for para in paragraphs:
-        chunks = _chunk_text(para, max_chars=800)
+        chunks = _chunk_text(para, max_chars=400)
         para_result = []
         for chunk in chunks:
             try:
@@ -693,12 +696,16 @@ def translate_for_voice(text: str, target_language: str) -> str:
                             {"role": "system", "content": system_prompt},
                             {"role": "user",   "content": chunk},
                         ],
-                        max_tokens=int(len(chunk) * 2.5) + 128,
-                        temperature=0.2,
-                        top_p=0.9,
+                        max_tokens=int(len(chunk) * 3) + 256,
+                        temperature=0.1,
+                        top_p=0.95,
+                        repeat_penalty=1.1,
                     )
                 result = output["choices"][0]["message"]["content"].strip()
+                logger.info("translate_for_voice: chunk %d chars → %d chars result: %.80r",
+                            len(chunk), len(result), result)
                 if not result:
+                    logger.warning("translate_for_voice: empty result, keeping original chunk")
                     result = chunk
             except Exception as exc:
                 logger.warning("translate_for_voice chunk failed: %s", exc)

@@ -20,11 +20,13 @@ from ui import COLORS, FONT_FAMILY
 from tag_suggester import (
     FISH_TAGS,
     TONE_OPTIONS,
+    TRANSLATE_LANGUAGES,
     suggest_tags,
     generate_tags,
     grammar_check,
     enhance_for_tts,
     rewrite_tone,
+    translate_for_voice,
     is_llm_available,
     is_qwen_model_ready,
     install_llama_cpp,
@@ -152,6 +154,9 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         tabs.add("🎭 Tone")
         self._build_tone_tab(tabs.tab("🎭 Tone"))
+
+        tabs.add("🌐 Translate")
+        self._build_translate_tab(tabs.tab("🌐 Translate"))
 
         # ── Bottom action bar ─────────────────────────────────────────
         self._build_bottom_bar()
@@ -311,6 +316,102 @@ class TextEditorWindow(ctk.CTkToplevel):
             text_color=COLORS["text_muted"],
             justify="left",
         ).pack(anchor="w", padx=10, pady=(6, 0))
+
+    def _build_translate_tab(self, parent):
+        ctk.CTkLabel(
+            parent, text="Translate Text",
+            font=(FONT_FAMILY, 12, "bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(anchor="w", padx=10, pady=(10, 2))
+
+        ctk.CTkLabel(
+            parent,
+            text="Choose a target language,\ntranslate, then accept or\ndiscard the result.",
+            font=(FONT_FAMILY, 10),
+            text_color=COLORS["text_secondary"],
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=(0, 8))
+
+        self._translate_lang_var = ctk.StringVar(value=TRANSLATE_LANGUAGES[0])
+        ctk.CTkOptionMenu(
+            parent,
+            values=TRANSLATE_LANGUAGES,
+            variable=self._translate_lang_var,
+            fg_color=COLORS["bg_input"],
+            button_color="#e76f51",
+            button_hover_color="#f4a261",
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_hover_color=COLORS["bg_card_hover"],
+            font=(FONT_FAMILY, 11),
+            height=28,
+        ).pack(fill="x", padx=10, pady=(0, 6))
+
+        self._translate_btn = ctk.CTkButton(
+            parent,
+            text="🌐 Translate",
+            fg_color="#e76f51",
+            hover_color="#f4a261",
+            font=(FONT_FAMILY, 11, "bold"),
+            height=30,
+            corner_radius=6,
+            command=self._translate_text,
+            state="normal" if (is_llm_available() and is_qwen_model_ready()) else "disabled",
+        )
+        self._translate_btn.pack(fill="x", padx=10, pady=(0, 4))
+
+        if not (is_llm_available() and is_qwen_model_ready()):
+            ctk.CTkLabel(
+                parent,
+                text="⚠ AI features not available.\nInstall via Settings.",
+                font=(FONT_FAMILY, 9),
+                text_color=COLORS["danger"],
+                justify="left",
+            ).pack(anchor="w", padx=10, pady=(4, 0))
+
+        ctk.CTkLabel(
+            parent,
+            text=(
+                "The original text is never\n"
+                "changed unless you click\n"
+                "Accept in the preview."
+            ),
+            font=(FONT_FAMILY, 9),
+            text_color=COLORS["text_muted"],
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=(8, 0))
+
+    def _translate_text(self):
+        text = self._textbox.get("1.0", "end-1c").strip()
+        if not text:
+            self._set_status("Nothing to translate.", COLORS["warning"])
+            return
+
+        target_lang = self._translate_lang_var.get()
+        self._translate_btn.configure(state="disabled", text="Translating…")
+        self._set_status(f"Translating → {target_lang}…", COLORS["warning"])
+
+        def _progress(msg, _frac=None):
+            self.after(0, lambda m=msg: self._set_status(m, COLORS["warning"]))
+
+        def _run():
+            try:
+                result = translate_for_voice(text, target_lang)
+            except Exception as exc:
+                logger.warning("Editor translate failed: %s", exc)
+                result = None
+
+            def _show():
+                self._translate_btn.configure(state="normal", text="🌐 Translate")
+                if not result or not result.strip():
+                    self._set_status("Translation returned empty — try again.", COLORS["danger"])
+                    return
+                self._set_status("")
+                self._show_diff_dialog(text, result, source=f"🌐 Translate → {target_lang}")
+                threading.Thread(target=unload_llm, daemon=True).start()
+
+            self.after(0, _show)
+
+        threading.Thread(target=_run, daemon=True, name="EditorTranslate").start()
 
     def _build_bottom_bar(self):
         bar = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=0, height=52)
