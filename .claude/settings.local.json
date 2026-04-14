@@ -19,7 +19,8 @@
       "Bash(ls \"C:/Users/Kenny/source/repos/Fishtalk/fish-speech-1.5/fish_speech/inference_engine/\" grep -n \"def generate\\\\|class\\\\|def load\" \"C:/Users/Kenny/source/repos/Fishtalk/fish-speech-1.5/fish_speech/inference_engine/\"*.py)",
       "Bash(venv/Scripts/python -c ':*)",
       "Bash(grep -v \".pyc\\\\|venv\\\\|__pycache__\" find \"C:/Users/Kenny/source/repos/Fishtalk/fish-speech-1.5\" -name \"*.yaml\")",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(grep -E \"\\\\.\\(txt|bat|ps1|cfg|toml|ini\\)$\")"
     ]
   }
 }
