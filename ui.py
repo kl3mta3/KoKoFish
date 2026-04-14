@@ -173,11 +173,13 @@ class FishTalkUI:
         self.tab_stt = self.tabview.add("🎙  Transcribe")
         self.tab_voices = self.tabview.add("🧬  Voice Lab")
         self.tab_settings = self.tabview.add("⚙  Settings")
+        self.tab_convert = self.tabview.add("🔄  Convert")
 
         self._build_tts_tab()
         self._build_stt_tab()
         self._build_voice_lab_tab()
         self._build_settings_tab()
+        self._build_convert_tab()
 
         # Lock Voice Lab tab when Kokoro engine is active
         if getattr(self.settings, 'engine', 'fish14') == 'kokoro':
@@ -569,8 +571,17 @@ class FishTalkUI:
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             command=self._tts_save_mp3, width=140, **_big,
         )
-        self.btn_save_mp3.pack(side="left", padx=(0, 16))
-        self._make_tooltip(self.btn_save_mp3, "Export selected items as MP3")
+        self.btn_save_mp3.pack(side="left", padx=(0, 4))
+        self._make_tooltip(self.btn_save_mp3, "Export selected items as individual MP3 files")
+
+        # Export Audiobook
+        _btn_ab = ctk.CTkButton(
+            sel_bar, text="📚 Audiobook",
+            fg_color="#2d6a4f", hover_color="#1b4332",
+            command=self._tts_export_audiobook, width=120, **_big,
+        )
+        _btn_ab.pack(side="left", padx=(0, 16))
+        self._make_tooltip(_btn_ab, "Merge selected items into one M4B audiobook with chapter marks")
 
         # Selection helpers
         _btn = ctk.CTkButton(
@@ -698,6 +709,29 @@ class FishTalkUI:
         )
         self.btn_stt_cancel.pack(side="left")
 
+        # Timestamp toggle
+        _ts_frame = ctk.CTkFrame(stt_controls, fg_color="transparent")
+        _ts_frame.pack(side="left", padx=(16, 0))
+        self._stt_timestamps_var = ctk.BooleanVar(value=True)
+        ctk.CTkLabel(
+            _ts_frame,
+            text="Timestamps",
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor="w")
+        ctk.CTkSwitch(
+            _ts_frame,
+            text="",
+            variable=self._stt_timestamps_var,
+            width=44,
+            height=22,
+            switch_width=40,
+            switch_height=18,
+            progress_color=COLORS["accent"],
+            button_color=COLORS["accent_light"],
+            button_hover_color=COLORS["accent"],
+        ).pack()
+
         # File info label
         self.stt_file_label = ctk.CTkLabel(
             stt_controls,
@@ -765,6 +799,346 @@ class FishTalkUI:
 
         # Store current audio path for transcription
         self._stt_audio_path = None
+
+    # ==================================================================
+    # TAB 5: Convert
+    # ==================================================================
+
+    def _build_convert_tab(self):
+        tab = self.tab_convert
+
+        scroll = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # ── shared card style ──────────────────────────────────────────
+        def _card(parent, title, icon):
+            f = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=12)
+            f.pack(fill="x", pady=(0, 14))
+            ctk.CTkLabel(
+                f, text=f"{icon}  {title}",
+                font=(FONT_FAMILY, 13, "bold"),
+                text_color=COLORS["text_primary"],
+            ).pack(anchor="w", padx=14, pady=(12, 6))
+            return f
+
+        # ── TEXT CONVERSION ────────────────────────────────────────────
+        txt_card = _card(scroll, "Text / Document Conversion", "📄")
+
+        _TEXT_FORMATS = ["TXT", "PDF", "DOCX", "EPUB"]
+        _TEXT_EXT = {
+            "TXT":  (".txt",  [("Text file", "*.txt")]),
+            "PDF":  (".pdf",  [("PDF document", "*.pdf")]),
+            "DOCX": (".docx", [("Word document", "*.docx")]),
+            "EPUB": (".epub", [("EPUB ebook", "*.epub")]),
+        }
+        _TEXT_READ_EXT = "*.txt *.pdf *.docx *.epub"
+
+        self._conv_text_in_path = None
+        self._conv_text_src_lbl = None
+
+        def _txt_browse(event=None):
+            p = filedialog.askopenfilename(
+                title="Open document…",
+                filetypes=[
+                    ("Supported documents", _TEXT_READ_EXT),
+                    ("All files", "*.*"),
+                ],
+                parent=self.root,
+            )
+            if p:
+                _txt_set_file(p)
+
+        def _txt_set_file(p):
+            self._conv_text_in_path = p
+            name = os.path.basename(p)
+            ext  = os.path.splitext(p)[1].upper().lstrip(".")
+            self._conv_text_src_lbl.configure(text=f"📎  {name}", text_color=COLORS["success"])
+            # Set "from" label and filter "to" so it excludes the source format
+            fmt = ext if ext in _TEXT_FORMATS else "?"
+            _txt_from_var.set(fmt if fmt != "?" else _TEXT_FORMATS[0])
+            _txt_update_to_options(fmt)
+
+        def _txt_update_to_options(src_fmt):
+            opts = [f for f in _TEXT_FORMATS if f != src_fmt]
+            _txt_to_menu.configure(values=opts)
+            if _txt_to_var.get() == src_fmt or _txt_to_var.get() not in opts:
+                _txt_to_var.set(opts[0])
+
+        def _txt_convert():
+            src = self._conv_text_in_path
+            if not src or not os.path.isfile(src):
+                messagebox.showinfo("Convert", "No input file selected.", parent=self.root)
+                return
+            to_fmt = _txt_to_var.get()
+            ext, ftypes = _TEXT_EXT[to_fmt]
+            stem = os.path.splitext(os.path.basename(src))[0]
+            out = filedialog.asksaveasfilename(
+                title=f"Save as {to_fmt}…",
+                defaultextension=ext,
+                filetypes=ftypes,
+                initialfile=f"{stem}{ext}",
+                parent=self.root,
+            )
+            if not out:
+                return
+
+            _txt_status.configure(text="Converting…", text_color=COLORS["warning"])
+            _txt_btn.configure(state="disabled")
+
+            def _run():
+                try:
+                    from utils import read_file, export_txt, export_docx, export_pdf, export_epub
+                    text = read_file(src)
+                    title = stem
+                    if to_fmt == "TXT":
+                        export_txt(text, out)
+                    elif to_fmt == "DOCX":
+                        export_docx(text, out)
+                    elif to_fmt == "PDF":
+                        export_pdf(text, out)
+                    elif to_fmt == "EPUB":
+                        export_epub(text, out, title=title)
+                    self.root.after(0, lambda: _txt_status.configure(
+                        text=f"✅ Saved {to_fmt}: {os.path.basename(out)}",
+                        text_color=COLORS["success"],
+                    ))
+                except Exception as exc:
+                    logger.error("Text convert failed: %s", exc)
+                    self.root.after(0, lambda e=str(exc): _txt_status.configure(
+                        text=f"⚠ {e}", text_color=COLORS["danger"]
+                    ))
+                finally:
+                    self.root.after(0, lambda: _txt_btn.configure(state="normal"))
+
+            threading.Thread(target=_run, daemon=True, name="TextConvert").start()
+
+        # Drop zone
+        _txt_drop = ctk.CTkFrame(
+            txt_card, fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"], border_width=2, corner_radius=8, height=60,
+        )
+        _txt_drop.pack(fill="x", padx=14, pady=(0, 8))
+        _txt_drop.pack_propagate(False)
+        self._conv_text_src_lbl = ctk.CTkLabel(
+            _txt_drop,
+            text="📄  Drop a TXT, PDF, DOCX or EPUB here — or click to browse",
+            font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
+        )
+        self._conv_text_src_lbl.pack(expand=True)
+        self._conv_text_src_lbl.bind("<Button-1>", _txt_browse)
+        _txt_drop.bind("<Button-1>", _txt_browse)
+        try:
+            from tkinterdnd2 import DND_FILES
+            _txt_drop.drop_target_register(DND_FILES)
+            _txt_drop.dnd_bind("<<Drop>>", lambda e: _txt_set_file(self._parse_drop_data(e.data)[0]) if self._parse_drop_data(e.data) else None)
+        except Exception:
+            pass
+
+        # From / To row
+        _fmt_row = ctk.CTkFrame(txt_card, fg_color="transparent")
+        _fmt_row.pack(fill="x", padx=14, pady=(0, 8))
+
+        _txt_from_var = ctk.StringVar(value="TXT")
+        ctk.CTkLabel(_fmt_row, text="From:", font=(FONT_FAMILY, 11),
+                     text_color=COLORS["text_secondary"]).pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(_fmt_row, textvariable=_txt_from_var,
+                     font=(FONT_FAMILY, 11, "bold"),
+                     text_color=COLORS["accent_light"]).pack(side="left", padx=(0, 12))
+
+        ctk.CTkLabel(_fmt_row, text="To:", font=(FONT_FAMILY, 11),
+                     text_color=COLORS["text_secondary"]).pack(side="left", padx=(0, 4))
+        _txt_to_var = ctk.StringVar(value="PDF")
+        _txt_to_menu = ctk.CTkOptionMenu(
+            _fmt_row, variable=_txt_to_var,
+            values=[f for f in _TEXT_FORMATS if f != "TXT"],
+            width=100, height=28,
+            fg_color=COLORS["bg_input"],
+            button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"],
+            dropdown_fg_color=COLORS["bg_card"], dropdown_hover_color=COLORS["bg_card_hover"],
+            font=(FONT_FAMILY, 11),
+        )
+        _txt_to_menu.pack(side="left", padx=(0, 12))
+
+        _txt_btn = ctk.CTkButton(
+            _fmt_row, text="Convert",
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            font=(FONT_FAMILY, 11, "bold"), height=28, width=90,
+            command=_txt_convert,
+        )
+        _txt_btn.pack(side="left")
+
+        _txt_status = ctk.CTkLabel(
+            txt_card, text="",
+            font=(FONT_FAMILY, 10), text_color=COLORS["text_secondary"],
+        )
+        _txt_status.pack(anchor="w", padx=14, pady=(0, 10))
+
+        # ── AUDIO CONVERSION ───────────────────────────────────────────
+        aud_card = _card(scroll, "Audio Conversion", "🎵")
+
+        _AUDIO_FORMATS = {
+            "MP3":  (".mp3",  [("MP3 audio",          "*.mp3")],  "libmp3lame", "192k"),
+            "WAV":  (".wav",  [("WAV audio",           "*.wav")],  "pcm_s16le",  None),
+            "M4B":  (".m4b",  [("Audiobook M4B",       "*.m4b")],  "aac",        "128k"),
+            "MP4":  (".mp4",  [("MP4 audio",           "*.mp4")],  "aac",        "128k"),
+            "FLAC": (".flac", [("FLAC lossless audio", "*.flac")], "flac",       None),
+        }
+        _AUDIO_READ_EXT = "*.mp3 *.wav *.m4b *.m4a *.mp4 *.flac *.ogg *.aac"
+        _AUDIO_NOTE = {
+            "M4B":  "Chapters preserved if source has them",
+            "MP4":  "Chapters preserved if source has them",
+            "MP3":  "ID3v2 chapter tags embedded — data survives re-encoding to M4B/MP4 later",
+            "WAV":  "⚠ Chapter metadata will be lost — WAV has no chapter support",
+            "FLAC": "Lossless · limited chapter support",
+        }
+
+        self._conv_audio_in_path = None
+        self._conv_audio_src_lbl = None
+
+        def _aud_browse(event=None):
+            p = filedialog.askopenfilename(
+                title="Open audio file…",
+                filetypes=[
+                    ("Audio files", _AUDIO_READ_EXT),
+                    ("All files", "*.*"),
+                ],
+                parent=self.root,
+            )
+            if p:
+                _aud_set_file(p)
+
+        def _aud_set_file(p):
+            self._conv_audio_in_path = p
+            name = os.path.basename(p)
+            self._conv_audio_src_lbl.configure(text=f"🎵  {name}", text_color=COLORS["success"])
+            src_ext = os.path.splitext(p)[1].upper().lstrip(".")
+            opts = list(_AUDIO_FORMATS.keys())
+            # Filter out the exact same format
+            if src_ext in opts:
+                opts = [f for f in opts if f != src_ext]
+            _aud_to_menu.configure(values=opts)
+            if _aud_to_var.get() not in opts:
+                _aud_to_var.set(opts[0])
+
+        def _aud_convert():
+            src = self._conv_audio_in_path
+            if not src or not os.path.isfile(src):
+                messagebox.showinfo("Convert", "No input audio file selected.", parent=self.root)
+                return
+            if not is_ffmpeg_available():
+                messagebox.showerror("Convert", "FFmpeg is required for audio conversion.", parent=self.root)
+                return
+
+            to_fmt = _aud_to_var.get()
+            ext, ftypes, acodec, bitrate = _AUDIO_FORMATS[to_fmt]
+            stem = os.path.splitext(os.path.basename(src))[0]
+            out = filedialog.asksaveasfilename(
+                title=f"Save as {to_fmt}…",
+                defaultextension=ext,
+                filetypes=ftypes,
+                initialfile=f"{stem}{ext}",
+                parent=self.root,
+            )
+            if not out:
+                return
+
+            _aud_status.configure(text="Converting…", text_color=COLORS["warning"])
+            _aud_btn.configure(state="disabled")
+
+            def _run():
+                import subprocess
+                try:
+                    cmd = ["ffmpeg", "-y", "-i", src, "-c:a", acodec]
+                    if bitrate:
+                        cmd += ["-b:a", bitrate]
+                    # Preserve chapter metadata wherever the format supports it
+                    if to_fmt in ("M4B", "MP4"):
+                        cmd += ["-map_metadata", "0", "-movflags", "+faststart"]
+                    elif to_fmt == "MP3":
+                        # Embed ID3v2 chapter tags so data survives a later re-encode
+                        cmd += ["-map_metadata", "0", "-id3v2_version", "3"]
+                    cmd.append(out)
+                    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    size_mb = os.path.getsize(out) / (1024 * 1024)
+                    self.root.after(0, lambda: _aud_status.configure(
+                        text=f"✅ Saved {to_fmt}: {os.path.basename(out)} ({size_mb:.1f} MB)",
+                        text_color=COLORS["success"],
+                    ))
+                except Exception as exc:
+                    logger.error("Audio convert failed: %s", exc)
+                    self.root.after(0, lambda e=str(exc): _aud_status.configure(
+                        text=f"⚠ {e}", text_color=COLORS["danger"],
+                    ))
+                finally:
+                    self.root.after(0, lambda: _aud_btn.configure(state="normal"))
+
+            threading.Thread(target=_run, daemon=True, name="AudioConvert").start()
+
+        def _aud_show_note(*_):
+            fmt = _aud_to_var.get()
+            note = _AUDIO_NOTE.get(fmt, "")
+            _aud_note_lbl.configure(text=note)
+
+        # Drop zone
+        _aud_drop = ctk.CTkFrame(
+            aud_card, fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"], border_width=2, corner_radius=8, height=60,
+        )
+        _aud_drop.pack(fill="x", padx=14, pady=(0, 8))
+        _aud_drop.pack_propagate(False)
+        self._conv_audio_src_lbl = ctk.CTkLabel(
+            _aud_drop,
+            text="🎵  Drop an MP3, WAV, M4B, FLAC or MP4 here — or click to browse",
+            font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
+        )
+        self._conv_audio_src_lbl.pack(expand=True)
+        self._conv_audio_src_lbl.bind("<Button-1>", _aud_browse)
+        _aud_drop.bind("<Button-1>", _aud_browse)
+        try:
+            from tkinterdnd2 import DND_FILES
+            _aud_drop.drop_target_register(DND_FILES)
+            _aud_drop.dnd_bind("<<Drop>>", lambda e: _aud_set_file(self._parse_drop_data(e.data)[0]) if self._parse_drop_data(e.data) else None)
+        except Exception:
+            pass
+
+        # To format row
+        _aud_row = ctk.CTkFrame(aud_card, fg_color="transparent")
+        _aud_row.pack(fill="x", padx=14, pady=(0, 4))
+
+        ctk.CTkLabel(_aud_row, text="Convert to:", font=(FONT_FAMILY, 11),
+                     text_color=COLORS["text_secondary"]).pack(side="left", padx=(0, 8))
+        _aud_to_var = ctk.StringVar(value="MP3")
+        _aud_to_menu = ctk.CTkOptionMenu(
+            _aud_row, variable=_aud_to_var,
+            values=list(_AUDIO_FORMATS.keys()),
+            width=100, height=28,
+            fg_color=COLORS["bg_input"],
+            button_color="#2d6a4f", button_hover_color="#1b4332",
+            dropdown_fg_color=COLORS["bg_card"], dropdown_hover_color=COLORS["bg_card_hover"],
+            font=(FONT_FAMILY, 11),
+            command=_aud_show_note,
+        )
+        _aud_to_menu.pack(side="left", padx=(0, 12))
+
+        _aud_btn = ctk.CTkButton(
+            _aud_row, text="Convert",
+            fg_color="#2d6a4f", hover_color="#1b4332",
+            font=(FONT_FAMILY, 11, "bold"), height=28, width=90,
+            command=_aud_convert,
+        )
+        _aud_btn.pack(side="left")
+
+        _aud_note_lbl = ctk.CTkLabel(
+            aud_card, text=_AUDIO_NOTE.get("MP3", ""),
+            font=(FONT_FAMILY, 9), text_color=COLORS["text_muted"],
+        )
+        _aud_note_lbl.pack(anchor="w", padx=14, pady=(0, 4))
+
+        _aud_status = ctk.CTkLabel(
+            aud_card, text="",
+            font=(FONT_FAMILY, 10), text_color=COLORS["text_secondary"],
+        )
+        _aud_status.pack(anchor="w", padx=14, pady=(0, 10))
 
     # ==================================================================
     # TAB 3: Voice Lab
@@ -1719,55 +2093,70 @@ class FishTalkUI:
                 ctk.CTkFrame(row, width=2, fg_color="transparent").pack(side="left")
 
             # ── Translate toggle ──────────────────────────────────────────
-            # Kokoro: auto-detects language from voice ID (no dropdown needed)
-            # Fish engines: dropdown lets user pick target language
+            # Kokoro: auto-translates based on voice language (no toggle)
+            # Fish engines: toggle + language dropdown + tone dropdown
             if _af_llm_ok:
-                tr_var = ctk.BooleanVar(value=item.get("translate", False))
-
-                def _on_tr_toggle(v=tr_var, i=idx):
-                    self._playlist_items[i]["translate"] = v.get()
-
-                ctk.CTkLabel(
-                    row, text="Translate",
-                    font=(FONT_FAMILY, 9),
-                    text_color=COLORS["accent_light"],
-                    width=18,
-                ).pack(side="left", padx=(4, 1))
-
-                _tr_switch = ctk.CTkSwitch(
-                    row,
-                    text="",
-                    variable=tr_var,
-                    command=_on_tr_toggle,
-                    width=36,
-                    height=20,
-                    switch_width=32,
-                    switch_height=16,
-                    progress_color="#f4a261",
-                    button_color="#e76f51",
-                    button_hover_color="#f4a261",
-                )
-                _tr_switch.pack(side="left", padx=(0, 2))
-
                 if is_kokoro:
+                    # Show a small "Auto" badge — translation is always automatic
+                    _item_vid = KOKORO_VOICES.get(item.get("voice", ""), "")
+                    _item_lang = KOKORO_VOICE_LANG.get(_item_vid, "English")
+                    if _item_lang != "English":
+                        _auto_lbl = ctk.CTkLabel(
+                            row,
+                            text=f"Auto→{_item_lang[:3]}",
+                            font=(FONT_FAMILY, 8),
+                            text_color="#f4a261",
+                        )
+                        _auto_lbl.pack(side="left", padx=(4, 2))
+                        self._make_tooltip(
+                            _auto_lbl,
+                            f"Text is automatically translated to {_item_lang} for this voice",
+                        )
+                else:
+                    # Non-Kokoro: toggle + language dropdown + tone dropdown
+                    from tag_suggester import TRANSLATE_LANGUAGES, TRANSLATE_TONES
+                    tr_var = ctk.BooleanVar(value=item.get("translate", False))
+
+                    def _on_tr_toggle(v=tr_var, i=idx):
+                        self._playlist_items[i]["translate"] = v.get()
+
+                    ctk.CTkLabel(
+                        row, text="Translate",
+                        font=(FONT_FAMILY, 9),
+                        text_color=COLORS["accent_light"],
+                        width=18,
+                    ).pack(side="left", padx=(4, 1))
+
+                    _tr_switch = ctk.CTkSwitch(
+                        row,
+                        text="",
+                        variable=tr_var,
+                        command=_on_tr_toggle,
+                        width=36,
+                        height=20,
+                        switch_width=32,
+                        switch_height=16,
+                        progress_color="#f4a261",
+                        button_color="#e76f51",
+                        button_hover_color="#f4a261",
+                    )
+                    _tr_switch.pack(side="left", padx=(0, 2))
                     self._make_tooltip(
                         _tr_switch,
-                        "Translate — AI translates text into the voice's language before generating speech",
+                        "Translate — AI translates text into the selected language before generating speech",
                     )
-                else:
-                    # Non-Kokoro: show language dropdown next to the toggle
-                    from tag_suggester import TRANSLATE_LANGUAGES, TRANSLATE_TONES
+
                     saved_lang = item.get("translate_lang", "") or TRANSLATE_LANGUAGES[0]
                     tr_lang_var = ctk.StringVar(value=saved_lang)
 
                     def _on_tr_lang(v, i=idx, lvar=tr_lang_var):
                         self._playlist_items[i]["translate_lang"] = lvar.get()
 
-                    _tr_lang_menu = ctk.CTkOptionMenu(
+                    ctk.CTkOptionMenu(
                         row,
                         variable=tr_lang_var,
                         values=TRANSLATE_LANGUAGES,
-                        width=130,
+                        width=110,
                         height=22,
                         fg_color=COLORS["bg_input"],
                         button_color="#e76f51",
@@ -1776,12 +2165,28 @@ class FishTalkUI:
                         dropdown_hover_color=COLORS["bg_card_hover"],
                         font=(FONT_FAMILY, 10),
                         command=lambda v, i=idx, lvar=tr_lang_var: _on_tr_lang(v, i, lvar),
-                    )
-                    _tr_lang_menu.pack(side="left", padx=(0, 2))
-                    self._make_tooltip(
-                        _tr_switch,
-                        "Translate — AI translates text into the selected language before generating speech",
-                    )
+                    ).pack(side="left", padx=(0, 2))
+
+                    saved_tone = item.get("translate_tone", "Natural")
+                    tr_tone_var = ctk.StringVar(value=saved_tone)
+
+                    def _on_tr_tone(v, i=idx, tvar=tr_tone_var):
+                        self._playlist_items[i]["translate_tone"] = tvar.get()
+
+                    ctk.CTkOptionMenu(
+                        row,
+                        variable=tr_tone_var,
+                        values=TRANSLATE_TONES,
+                        width=90,
+                        height=22,
+                        fg_color=COLORS["bg_input"],
+                        button_color="#9b59b6",
+                        button_hover_color="#8e44ad",
+                        dropdown_fg_color=COLORS["bg_card"],
+                        dropdown_hover_color=COLORS["bg_card_hover"],
+                        font=(FONT_FAMILY, 10),
+                        command=lambda v, i=idx, tvar=tr_tone_var: _on_tr_tone(v, i, tvar),
+                    ).pack(side="left", padx=(0, 2))
 
             # ── Per-item buttons (icon-only, 32×32) ──────────────────────
             _ib = {"width": 32, "height": 32, "corner_radius": 5, "font": (FONT_FAMILY, 14)}
@@ -2384,22 +2789,20 @@ class FishTalkUI:
 
         # ── Preprocessing: Translate → Assisted Flow (chain in one thread) ─
         _is_kokoro_mode = getattr(self.settings, 'engine', 'fish14') == 'kokoro'
-        _needs_translate = item.get("translate", False)
-        _needs_af        = item.get("assisted_flow", False)
+        _needs_af       = item.get("assisted_flow", False)
 
-        # Resolve target language now (on main thread) before spawning worker
-        if _needs_translate:
-            if _is_kokoro_mode:
-                _item_voice_id  = KOKORO_VOICES.get(item.get("voice", ""), "")
-                _target_lang    = KOKORO_VOICE_LANG.get(_item_voice_id, "English")
-            else:
-                _target_lang = item.get("translate_lang", "") or "Japanese"
+        # Resolve target language and translation need now (on main thread)
+        if _is_kokoro_mode:
+            # Kokoro: auto-translate whenever voice language is non-English
+            _item_voice_id = KOKORO_VOICES.get(item.get("voice", ""), "")
+            _target_lang   = KOKORO_VOICE_LANG.get(_item_voice_id, "English")
+            _needs_translate = _target_lang != "English"
+            _tone = "Natural"
         else:
-            _target_lang   = "English"
-            _item_voice_id = ""
-
-        # Skip translate if target is English (no-op) or nothing to do
-        _needs_translate = _needs_translate and _target_lang != "English"
+            _needs_translate = item.get("translate", False)
+            _target_lang     = item.get("translate_lang", "") or "Japanese"
+            _tone            = item.get("translate_tone", "Natural")
+            _needs_translate = _needs_translate and _target_lang != "English"
 
         if _text_override is None and (_needs_translate or _needs_af):
             from tag_suggester import is_llm_available, is_qwen_model_ready
@@ -2412,6 +2815,7 @@ class FishTalkUI:
                     _lang=_target_lang,
                     _do_tr=_needs_translate,
                     _do_af=_needs_af,
+                    _tr_tone=_tone,
                 ):
                     current_text = item["text"]
 
@@ -2422,7 +2826,7 @@ class FishTalkUI:
                             self.root.after(0, lambda l=_lang: self.tts_status.configure(
                                 text=f"Translating {item['name']} → {l}…"
                             ))
-                            translated = translate_for_voice(current_text, _lang)
+                            translated = translate_for_voice(current_text, _lang, tone=_tr_tone)
                             if translated and translated.strip():
                                 current_text = translated
                         except Exception as exc:
@@ -2758,6 +3162,155 @@ class FishTalkUI:
         else:
             self.tts_status.configure(text=f"✅ Saved {saved} file(s) to {os.path.basename(dest_dir)}")
 
+    def _tts_export_audiobook(self):
+        """Merge selected items with audio into a single M4B audiobook with chapter marks."""
+        ready = [
+            it for it in self._playlist_items
+            if it.get("selected", True)
+            and it.get("audio_path")
+            and os.path.isfile(it["audio_path"])
+        ]
+        if not ready:
+            messagebox.showinfo(
+                "Export Audiobook",
+                "No generated audio found for selected items.\nGenerate speech first.",
+                parent=self.root,
+            )
+            return
+
+        if not is_ffmpeg_available():
+            messagebox.showerror(
+                "Export Audiobook",
+                "FFmpeg is required for audiobook export but was not found.\n"
+                "Install FFmpeg and ensure it is on your PATH.",
+                parent=self.root,
+            )
+            return
+
+        out_path = filedialog.asksaveasfilename(
+            title="Save Audiobook As…",
+            defaultextension=".m4b",
+            filetypes=[
+                ("Audiobook M4B — chapters supported", "*.m4b"),
+                ("MP4 audio — chapters supported",     "*.mp4"),
+                ("WAV — lossless, no chapters",        "*.wav"),
+                ("MP3 — no chapter support",           "*.mp3"),
+            ],
+            initialfile="audiobook.m4b",
+            parent=self.root,
+        )
+        if not out_path:
+            return
+
+        self.tts_status.configure(text="Building audiobook…")
+        self.root.update_idletasks()
+
+        def _build():
+            import subprocess, tempfile
+
+            tmp_dir = tempfile.mkdtemp(prefix="fishtalk_ab_")
+            try:
+                # ── 1. Normalise all inputs to wav (ffmpeg handles wav/mp3) ──
+                wav_files = []
+                durations_ms = []
+                for idx, it in enumerate(ready):
+                    src = it["audio_path"]
+                    norm_wav = os.path.join(tmp_dir, f"track_{idx:04d}.wav")
+                    subprocess.run(
+                        ["ffmpeg", "-y", "-i", src, "-ar", "44100", "-ac", "2", norm_wav],
+                        check=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    # Get duration via ffprobe
+                    probe = subprocess.run(
+                        ["ffprobe", "-v", "error", "-show_entries",
+                         "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", norm_wav],
+                        capture_output=True, text=True,
+                    )
+                    dur_s = float(probe.stdout.strip() or "0")
+                    durations_ms.append(int(dur_s * 1000))
+                    wav_files.append(norm_wav)
+
+                # ── 2. Write FFmpeg concat list ──────────────────────────────
+                concat_txt = os.path.join(tmp_dir, "concat.txt")
+                with open(concat_txt, "w", encoding="utf-8") as f:
+                    for w in wav_files:
+                        # FFmpeg concat list: paths use forward slashes, single-quoted
+                        safe = w.replace("\\", "/").replace("'", "'\\''")
+                        f.write(f"file '{safe}'\n")
+
+                # ── 3. Write FFmpeg chapter metadata ─────────────────────────
+                meta_txt = os.path.join(tmp_dir, "chapters.txt")
+                with open(meta_txt, "w", encoding="utf-8") as f:
+                    f.write(";FFMETADATA1\ntitle=Audiobook\nartist=FishTalk\n\n")
+                    cursor_ms = 0
+                    for it, dur_ms in zip(ready, durations_ms):
+                        title = os.path.splitext(it["name"])[0]
+                        f.write("[CHAPTER]\n")
+                        f.write("TIMEBASE=1/1000\n")
+                        f.write(f"START={cursor_ms}\n")
+                        f.write(f"END={cursor_ms + dur_ms}\n")
+                        f.write(f"title={title}\n\n")
+                        cursor_ms += dur_ms
+
+                # ── 4. Concat + embed chapters + encode ──────────────────────
+                ext = os.path.splitext(out_path)[1].lower()
+                if ext == ".wav":
+                    # WAV: simple concat, no chapter metadata, no re-encode
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-f", "concat", "-safe", "0", "-i", concat_txt,
+                        "-c", "copy", out_path,
+                    ]
+                elif ext == ".mp3":
+                    # Embed ID3v2 chapter tags so data survives a later re-encode
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-f", "concat", "-safe", "0", "-i", concat_txt,
+                        "-i", meta_txt,
+                        "-map_metadata", "1",
+                        "-c:a", "libmp3lame", "-b:a", "192k",
+                        "-id3v2_version", "3",
+                        out_path,
+                    ]
+                else:
+                    # M4B / MP4: chapters + AAC
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-f", "concat", "-safe", "0", "-i", concat_txt,
+                        "-i", meta_txt,
+                        "-map_metadata", "1",
+                        "-c:a", "aac", "-b:a", "128k",
+                        "-movflags", "+faststart",
+                        out_path,
+                    ]
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                total_s = sum(durations_ms) / 1000
+                m, s = divmod(int(total_s), 60)
+                h, m = divmod(m, 60)
+                dur_str = f"{h}h {m}m {s}s" if h else f"{m}m {s}s"
+                self.root.after(0, lambda: self.tts_status.configure(
+                    text=f"✅ Audiobook saved — {len(ready)} chapters, {dur_str}"
+                ))
+
+            except Exception as exc:
+                logger.error("Audiobook export failed: %s", exc)
+                self.root.after(0, lambda e=str(exc): messagebox.showerror(
+                    "Audiobook Export Failed", e, parent=self.root
+                ))
+                self.root.after(0, lambda: self.tts_status.configure(text="Audiobook export failed"))
+            finally:
+                # Clean up temp files
+                import shutil
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                except Exception:
+                    pass
+
+        threading.Thread(target=_build, daemon=True, name="AudiobookExport").start()
+
     # ==================================================================
     # EVENT HANDLERS — STT Tab
     # ==================================================================
@@ -2842,11 +3395,11 @@ class FishTalkUI:
         self.stt_progress.set(0)
 
         def on_segment(text, start, end):
-            timestamp = f"[{start:.1f}s → {end:.1f}s]"
-            self.root.after(
-                0,
-                lambda: self._stt_append_text(f"{timestamp}  {text}\n")
-            )
+            if getattr(self, "_stt_timestamps_var", None) and self._stt_timestamps_var.get():
+                line = f"[{start:.1f}s → {end:.1f}s]  {text}\n"
+            else:
+                line = f"{text} "
+            self.root.after(0, lambda l=line: self._stt_append_text(l))
 
         def on_progress(frac):
             self.root.after(0, lambda: self.stt_progress.set(frac))

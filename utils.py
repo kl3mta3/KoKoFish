@@ -737,6 +737,41 @@ def export_pdf(text: str, path: str) -> str:
     return path
 
 
+def export_epub(text: str, path: str, title: str = "Document") -> str:
+    """Save text to an EPUB file using ebooklib."""
+    try:
+        from ebooklib import epub
+    except ImportError:
+        raise ImportError("ebooklib is required for EPUB export.\nInstall it with: pip install ebooklib")
+
+    book = epub.EpubBook()
+    book.set_title(title)
+    book.set_language("en")
+
+    # Split on double newlines to create paragraphs
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    if not paragraphs:
+        paragraphs = [text.strip() or "(empty)"]
+
+    html_body = "\n".join(f"<p>{p}</p>" for p in paragraphs)
+    chapter = epub.EpubHtml(title=title, file_name="content.xhtml", lang="en")
+    chapter.content = (
+        "<?xml version='1.0' encoding='utf-8'?>"
+        "<html xmlns='http://www.w3.org/1999/xhtml'>"
+        f"<head><title>{title}</title></head>"
+        f"<body>{html_body}</body></html>"
+    )
+
+    book.add_item(chapter)
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = ["nav", chapter]
+
+    epub.write_epub(path, book)
+    logger.info("Exported EPUB: %s", path)
+    return path
+
+
 # ---------------------------------------------------------------------------
 # System monitoring
 # ---------------------------------------------------------------------------

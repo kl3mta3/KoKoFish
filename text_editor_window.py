@@ -21,6 +21,7 @@ from tag_suggester import (
     FISH_TAGS,
     TONE_OPTIONS,
     TRANSLATE_LANGUAGES,
+    TRANSLATE_TONES,
     suggest_tags,
     generate_tags,
     grammar_check,
@@ -344,6 +345,20 @@ class TextEditorWindow(ctk.CTkToplevel):
             dropdown_hover_color=COLORS["bg_card_hover"],
             font=(FONT_FAMILY, 11),
             height=28,
+        ).pack(fill="x", padx=10, pady=(0, 4))
+
+        self._translate_tone_var = ctk.StringVar(value=TRANSLATE_TONES[0])
+        ctk.CTkOptionMenu(
+            parent,
+            values=TRANSLATE_TONES,
+            variable=self._translate_tone_var,
+            fg_color=COLORS["bg_input"],
+            button_color="#9b59b6",
+            button_hover_color="#8e44ad",
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_hover_color=COLORS["bg_card_hover"],
+            font=(FONT_FAMILY, 11),
+            height=28,
         ).pack(fill="x", padx=10, pady=(0, 6))
 
         self._translate_btn = ctk.CTkButton(
@@ -387,6 +402,8 @@ class TextEditorWindow(ctk.CTkToplevel):
             return
 
         target_lang = self._translate_lang_var.get()
+        target_tone = getattr(self, "_translate_tone_var", None)
+        target_tone = target_tone.get() if target_tone else "Natural"
         self._translate_btn.configure(state="disabled", text="Translating…")
         self._set_status(f"Translating → {target_lang}…", COLORS["warning"])
 
@@ -395,7 +412,7 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         def _run():
             try:
-                result = translate_for_voice(text, target_lang)
+                result = translate_for_voice(text, target_lang, tone=target_tone)
             except Exception as exc:
                 logger.warning("Editor translate failed: %s", exc)
                 result = None
