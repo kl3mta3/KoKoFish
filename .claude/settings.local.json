@@ -4,7 +4,9 @@
       "Bash(ls -la /c/Users/Kenny/source/repos/Fishtalk/*.py)",
       "Bash(python -c \"import kokoro_onnx; import inspect; print\\(inspect.signature\\(kokoro_onnx.Kokoro.create\\)\\)\")",
       "Bash(grep -n \"1\\\\.5\" /c/Users/Kenny/source/repos/Fishtalk/*.py)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(python -c \"import mutagen; print\\('mutagen OK', mutagen.version_info\\)\")",
+      "Bash(python -m py_compile ui.py)"
     ]
   }
 }

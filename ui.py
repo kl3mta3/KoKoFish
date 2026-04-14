@@ -169,17 +169,28 @@ class FishTalkUI:
         self.tabview.pack(fill="both", expand=True, padx=20, pady=(0, 20))
 
         # Create tabs
-        self.tab_tts = self.tabview.add("📖  Read Aloud")
-        self.tab_stt = self.tabview.add("🎙  Transcribe")
-        self.tab_voices = self.tabview.add("🧬  Voice Lab")
+        self.tab_tts      = self.tabview.add("🔊  Speech Lab")
+        self.tab_voices   = self.tabview.add("🧬  Voice Lab")
+        self.tab_stt      = self.tabview.add("📝  Text Lab")
+        self.tab_convert  = self.tabview.add("📁  File Lab")
+        self.tab_listen   = self.tabview.add("🎧  Listen Lab")
         self.tab_settings = self.tabview.add("⚙  Settings")
-        self.tab_convert = self.tabview.add("🔄  Convert")
+
+        # Listen Lab state
+        self._listen_items: list = []          # {path, name, selected}
+        self._listen_preview_idx: int = -1
+        self._listen_preview_paused: bool = False
+        self._listen_preview_stream = None
+        self._listen_preview_audio = None
+        self._listen_preview_pos: int = 0
+        self._listen_preview_sr = None
 
         self._build_tts_tab()
-        self._build_stt_tab()
         self._build_voice_lab_tab()
-        self._build_settings_tab()
+        self._build_stt_tab()
         self._build_convert_tab()
+        self._build_listen_lab_tab()
+        self._build_settings_tab()
 
         # Lock Voice Lab tab when Kokoro engine is active
         if getattr(self.settings, 'engine', 'fish14') == 'kokoro':
@@ -308,7 +319,7 @@ class FishTalkUI:
 
         self.speed_label = ctk.CTkLabel(
             speed_frame,
-            text="Speed: 1.0x",
+            text=f"Speed: {self.settings.speed:.1f}x",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_secondary"],
         )
@@ -383,6 +394,45 @@ class FishTalkUI:
         self.cad_slider.pack()
         self._make_tooltip(self.cad_label,  "Cadence — adds a brief pause between decoded speech chunks (Fish Speech only). 0% = no pause, 100% = ~600 ms gap. Has no effect on Kokoro.")
         self._make_tooltip(self.cad_slider, "Cadence — adds a brief pause between decoded speech chunks (Fish Speech only). 0% = no pause, 100% = ~600 ms gap. Has no effect on Kokoro.")
+
+        # ── Content Style dropdown ────────────────────────────────────────
+        style_frame = ctk.CTkFrame(controls, fg_color="transparent")
+        style_frame.pack(side="left", padx=15)
+        ctk.CTkLabel(
+            style_frame,
+            text="Content Style",
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor="w")
+        _CONTENT_STYLES = [
+            "None", "Formal", "Casual", "Scientific",
+            "Professional", "Story — Fiction",
+            "Story — Non-Fiction", "Podcast",
+        ]
+        saved_style = getattr(self.settings, "content_style", "None")
+        if saved_style not in _CONTENT_STYLES:
+            saved_style = "None"
+        self._content_style_var = ctk.StringVar(value=saved_style)
+        def _on_style_change(v):
+            self.settings.content_style = v
+        ctk.CTkOptionMenu(
+            style_frame,
+            variable=self._content_style_var,
+            values=_CONTENT_STYLES,
+            width=160,
+            height=26,
+            fg_color=COLORS["bg_input"],
+            button_color="#9b59b6",
+            button_hover_color="#8e44ad",
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_hover_color=COLORS["bg_card_hover"],
+            font=(FONT_FAMILY, 11),
+            command=_on_style_change,
+        ).pack(anchor="w")
+        self._make_tooltip(
+            style_frame,
+            "Content style hints for AI Assisted Flow and Translation — tells the model what kind of text this is",
+        )
 
         # ── Playlist header row ──────────────────────────────────────────
         playlist_header = ctk.CTkFrame(tab, fg_color="transparent")
@@ -513,14 +563,14 @@ class FishTalkUI:
         _mini = {"font": (FONT_FAMILY, 13),         "corner_radius": 6, "height": 34, "width": 36}
         _util = {"font": (FONT_FAMILY, 12, "bold"), "corner_radius": 8, "height": 34}
 
-        # TTS Selected + its Pause / Stop
-        _btn = ctk.CTkButton(
-            sel_bar, text="🔊 TTS Selected",
+        # TTS Selected + its Pause / Stop (pause/stop hidden until converting)
+        _btn_convert = ctk.CTkButton(
+            sel_bar, text="🔊 Convert Selected",
             fg_color=COLORS["success"], hover_color="#05b890",
             command=self._tts_selected, width=140, **_big,
         )
-        _btn.pack(side="left", padx=(0, 2))
-        self._make_tooltip(_btn, "Convert selected items to speech")
+        _btn_convert.pack(side="left", padx=(0, 2))
+        self._make_tooltip(_btn_convert, "Convert selected items to speech")
 
         self.btn_pause = ctk.CTkButton(
             sel_bar, text="⏸",
@@ -528,42 +578,47 @@ class FishTalkUI:
             text_color="#1a1a2e",
             command=self._tts_pause, **_mini,
         )
-        self.btn_pause.pack(side="left", padx=(0, 2))
         self._make_tooltip(self.btn_pause, "Pause conversion")
+        # Not packed yet — shown when conversion starts
 
         self.btn_stop = ctk.CTkButton(
             sel_bar, text="⏹",
             fg_color=COLORS["danger"], hover_color="#d43d62",
             command=self._tts_stop, **_mini,
         )
-        self.btn_stop.pack(side="left", padx=(0, 12))
         self._make_tooltip(self.btn_stop, "Stop / cancel conversion")
+        # Not packed yet — shown when conversion starts
 
-        # Play Selected + its Pause / Stop
-        _btn = ctk.CTkButton(
+        # Play Selected + its Pause / Stop (pause/stop hidden until playing)
+        _btn_play_sel = ctk.CTkButton(
             sel_bar, text="▶ Play Selected",
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             command=self._play_selected, width=140, **_big,
         )
-        _btn.pack(side="left", padx=(0, 2))
-        self._make_tooltip(_btn, "Play audio for selected items")
+        _btn_play_sel.pack(side="left", padx=(0, 2))
+        self._make_tooltip(_btn_play_sel, "Play audio for selected items")
 
-        _btn = ctk.CTkButton(
+        self.btn_play_pause = ctk.CTkButton(
             sel_bar, text="⏸",
             fg_color=COLORS["warning"], hover_color="#e6bc5c",
             text_color="#1a1a2e",
             command=self._stop_preview, **_mini,
         )
-        _btn.pack(side="left", padx=(0, 2))
-        self._make_tooltip(_btn, "Pause playback")
+        self._make_tooltip(self.btn_play_pause, "Pause playback")
+        # Not packed yet
 
-        _btn = ctk.CTkButton(
+        self.btn_play_stop = ctk.CTkButton(
             sel_bar, text="⏹",
             fg_color=COLORS["danger"], hover_color="#d43d62",
             command=self._stop_preview, **_mini,
         )
-        _btn.pack(side="left", padx=(0, 12))
-        self._make_tooltip(_btn, "Stop playback")
+        self._make_tooltip(self.btn_play_stop, "Stop playback")
+        # Not packed yet
+
+        # Store sel_bar reference so we can re-pack buttons with correct order
+        self._sel_bar = sel_bar
+        self._btn_convert = _btn_convert
+        self._btn_play_sel = _btn_play_sel
 
         # Save Selected
         self.btn_save_mp3 = ctk.CTkButton(
@@ -795,6 +850,11 @@ class FishTalkUI:
         ctk.CTkButton(
             export_frame, text="📑  Save .pdf",
             command=lambda: self._stt_export("pdf"), **exp_style,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            export_frame, text="📖  Save .epub",
+            command=lambda: self._stt_export("epub"), **exp_style,
         ).pack(side="left", padx=(0, 8))
 
         # Store current audio path for transcription
@@ -1140,6 +1200,658 @@ class FishTalkUI:
         )
         _aud_status.pack(anchor="w", padx=14, pady=(0, 10))
 
+        # ── COMBINE AUDIO FILES → AUDIOBOOK ────────────────────────────
+        comb_card = _card(scroll, "Combine Audio Files → Audiobook", "📚")
+
+        ctk.CTkLabel(
+            comb_card,
+            text="Drop or add audio files, drag to reorder, then export as M4B/MP4/WAV/MP3.\n"
+                 "Chapter marks are embedded when exporting to M4B or MP4.",
+            font=(FONT_FAMILY, 10), text_color=COLORS["text_secondary"],
+            justify="left",
+        ).pack(anchor="w", padx=14, pady=(0, 6))
+
+        # File list
+        _comb_files: list = []  # list of dicts: {path, name}
+
+        _list_frame = ctk.CTkScrollableFrame(
+            comb_card, fg_color=COLORS["bg_input"],
+            corner_radius=6, height=160,
+        )
+        _list_frame.pack(fill="x", padx=14, pady=(0, 6))
+
+        _comb_status = ctk.CTkLabel(
+            comb_card, text="No files added yet.",
+            font=(FONT_FAMILY, 10), text_color=COLORS["text_muted"],
+        )
+        _comb_status.pack(anchor="w", padx=14, pady=(0, 4))
+
+        # drag state for the combine list
+        _comb_drag: dict = {"src": None, "rows": []}
+
+        def _comb_rebuild():
+            for w in _list_frame.winfo_children():
+                w.destroy()
+            _comb_drag["rows"].clear()
+
+            if not _comb_files:
+                ctk.CTkLabel(
+                    _list_frame,
+                    text="No files — click Add Files below",
+                    font=(FONT_FAMILY, 10),
+                    text_color=COLORS["text_muted"],
+                ).pack(pady=10)
+                _comb_status.configure(text="No files added yet.")
+                return
+
+            total_s = 0.0
+            for i, f in enumerate(_comb_files):
+                row = ctk.CTkFrame(_list_frame, fg_color=COLORS["bg_card"], corner_radius=4, height=32)
+                row.pack(fill="x", pady=1)
+                row.pack_propagate(False)
+                _comb_drag["rows"].append((i, row))
+
+                # drag handle
+                _h = ctk.CTkLabel(row, text="⠿", font=(FONT_FAMILY, 14),
+                                   text_color=COLORS["text_muted"], width=18, cursor="fleur")
+                _h.pack(side="left", padx=(4, 0))
+                _h.bind("<ButtonPress-1>",  lambda e, si=i: _comb_drag_start(e, si))
+                _h.bind("<B1-Motion>",       lambda e, si=i: _comb_drag_motion(e, si))
+                _h.bind("<ButtonRelease-1>", lambda e, si=i: _comb_drag_end(e, si))
+
+                ctk.CTkLabel(
+                    row,
+                    text=f"{i+1}. {f['name']}",
+                    font=(FONT_FAMILY, 10),
+                    text_color=COLORS["text_primary"],
+                    anchor="w",
+                ).pack(side="left", fill="x", expand=True, padx=6)
+
+                ctk.CTkButton(
+                    row, text="✕", width=24, height=22, corner_radius=4,
+                    fg_color=COLORS["danger"], hover_color="#d43d62",
+                    font=(FONT_FAMILY, 11),
+                    command=lambda fi=i: (_comb_files.pop(fi), _comb_rebuild()),
+                ).pack(side="right", padx=4)
+
+            n = len(_comb_files)
+            _comb_status.configure(text=f"{n} file{'s' if n != 1 else ''} ready to combine")
+
+        def _comb_drag_start(event, i):
+            _comb_drag["src"] = i
+            event.widget.grab_set()
+
+        def _comb_drag_motion(event, _i):
+            if _comb_drag["src"] is None:
+                return
+            x = event.widget.winfo_rootx() + event.x
+            y = event.widget.winfo_rooty() + event.y
+            for row_i, row_w in _comb_drag["rows"]:
+                try:
+                    rx, ry = row_w.winfo_rootx(), row_w.winfo_rooty()
+                    if rx <= x <= rx + row_w.winfo_width() and ry <= y <= ry + row_w.winfo_height():
+                        _comb_drag["over"] = row_i
+                        break
+                except Exception:
+                    pass
+
+        def _comb_drag_end(event, _i):
+            if _comb_drag["src"] is None:
+                return
+            try:
+                event.widget.grab_release()
+            except Exception:
+                pass
+            x = event.widget.winfo_rootx() + event.x
+            y = event.widget.winfo_rooty() + event.y
+            target = None
+            for row_i, row_w in _comb_drag["rows"]:
+                try:
+                    rx, ry = row_w.winfo_rootx(), row_w.winfo_rooty()
+                    if rx <= x <= rx + row_w.winfo_width() and ry <= y <= ry + row_w.winfo_height():
+                        target = row_i
+                        break
+                except Exception:
+                    pass
+            src = _comb_drag["src"]
+            _comb_drag["src"] = None
+            if target is not None and target != src:
+                item = _comb_files.pop(src)
+                _comb_files.insert(target, item)
+                _comb_rebuild()
+
+        def _comb_add():
+            paths = filedialog.askopenfilenames(
+                title="Add audio files…",
+                filetypes=[("Audio files", "*.mp3 *.wav *.m4b *.m4a *.mp4 *.flac *.ogg")],
+                parent=self.root,
+            )
+            for p in paths:
+                _comb_files.append({"path": p, "name": os.path.basename(p)})
+            _comb_rebuild()
+
+        def _comb_clear():
+            _comb_files.clear()
+            _comb_rebuild()
+
+        def _comb_export():
+            if not _comb_files:
+                messagebox.showinfo("Combine", "No files to combine.", parent=self.root)
+                return
+            if not is_ffmpeg_available():
+                messagebox.showerror("Combine", "FFmpeg required for audio combine.", parent=self.root)
+                return
+            out = filedialog.asksaveasfilename(
+                title="Save combined audiobook as…",
+                defaultextension=".m4b",
+                filetypes=[
+                    ("Audiobook M4B — chapters supported", "*.m4b"),
+                    ("MP4 audio — chapters supported",     "*.mp4"),
+                    ("WAV — lossless, no chapters",        "*.wav"),
+                    ("MP3 — ID3v2 chapters",               "*.mp3"),
+                ],
+                initialfile="combined.m4b",
+                parent=self.root,
+            )
+            if not out:
+                return
+            _comb_status.configure(text="Combining…", text_color=COLORS["warning"])
+
+            def _run():
+                import subprocess, tempfile
+                tmp = tempfile.mkdtemp(prefix="fishtalk_comb_")
+                try:
+                    wav_files, durations_ms = [], []
+                    for fi, f in enumerate(_comb_files):
+                        norm = os.path.join(tmp, f"t{fi:04d}.wav")
+                        subprocess.run(
+                            ["ffmpeg", "-y", "-i", f["path"], "-ar", "44100", "-ac", "2", norm],
+                            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        )
+                        probe = subprocess.run(
+                            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                             "-of", "default=noprint_wrappers=1:nokey=1", norm],
+                            capture_output=True, text=True,
+                        )
+                        dur_s = float(probe.stdout.strip() or "0")
+                        durations_ms.append(int(dur_s * 1000))
+                        wav_files.append(norm)
+
+                    concat_txt = os.path.join(tmp, "concat.txt")
+                    with open(concat_txt, "w", encoding="utf-8") as fh:
+                        for w in wav_files:
+                            fh.write(f"file '{w.replace(chr(92), '/')}'\n")
+
+                    meta_txt = os.path.join(tmp, "chapters.txt")
+                    with open(meta_txt, "w", encoding="utf-8") as fh:
+                        fh.write(";FFMETADATA1\ntitle=Combined Audiobook\nartist=FishTalk\n\n")
+                        cursor = 0
+                        for f, dur in zip(_comb_files, durations_ms):
+                            title = os.path.splitext(f["name"])[0]
+                            fh.write(f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={cursor}\nEND={cursor+dur}\ntitle={title}\n\n")
+                            cursor += dur
+
+                    ext = os.path.splitext(out)[1].lower()
+                    if ext == ".wav":
+                        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_txt, "-c", "copy", out]
+                    elif ext == ".mp3":
+                        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_txt, "-i", meta_txt,
+                               "-map_metadata", "1", "-c:a", "libmp3lame", "-b:a", "192k", "-id3v2_version", "3", out]
+                    else:
+                        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_txt, "-i", meta_txt,
+                               "-map_metadata", "1", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", out]
+                    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                    total_s = sum(durations_ms) / 1000
+                    m, s = divmod(int(total_s), 60)
+                    h, m = divmod(m, 60)
+                    dur_str = f"{h}h {m}m {s}s" if h else f"{m}m {s}s"
+                    self.root.after(0, lambda: _comb_status.configure(
+                        text=f"✅ Saved — {len(_comb_files)} chapters, {dur_str}",
+                        text_color=COLORS["success"],
+                    ))
+                except Exception as exc:
+                    logger.error("Combine export failed: %s", exc)
+                    self.root.after(0, lambda e=str(exc): _comb_status.configure(
+                        text=f"⚠ {e}", text_color=COLORS["danger"],
+                    ))
+                finally:
+                    import shutil
+                    shutil.rmtree(tmp, ignore_errors=True)
+
+            threading.Thread(target=_run, daemon=True, name="CombineExport").start()
+
+        # Also support drag-and-drop into _list_frame
+        try:
+            from tkinterdnd2 import DND_FILES
+            _list_frame.drop_target_register(DND_FILES)
+            def _on_drop(e):
+                for p in self._parse_drop_data(e.data):
+                    if os.path.isfile(p):
+                        _comb_files.append({"path": p, "name": os.path.basename(p)})
+                _comb_rebuild()
+            _list_frame.dnd_bind("<<Drop>>", _on_drop)
+        except Exception:
+            pass
+
+        # Buttons row
+        _comb_btn_row = ctk.CTkFrame(comb_card, fg_color="transparent")
+        _comb_btn_row.pack(fill="x", padx=14, pady=(0, 12))
+        _bs = {"font": (FONT_FAMILY, 11, "bold"), "corner_radius": 6, "height": 28}
+        ctk.CTkButton(_comb_btn_row, text="➕ Add Files",
+                      fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                      command=_comb_add, width=110, **_bs).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(_comb_btn_row, text="🗑 Clear",
+                      fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                      border_color=COLORS["border"], border_width=1,
+                      command=_comb_clear, width=80, **_bs).pack(side="left", padx=(0, 12))
+        ctk.CTkButton(_comb_btn_row, text="📚 Export Audiobook",
+                      fg_color="#2d6a4f", hover_color="#1b4332",
+                      command=_comb_export, width=160, **_bs).pack(side="left")
+
+        _comb_rebuild()
+
+    # ==================================================================
+    # TAB 5: Listen Lab
+    # ==================================================================
+
+    def _build_listen_lab_tab(self):
+        tab = self.tab_listen
+
+        # ── Header ───────────────────────────────────────────────────────────
+        hdr = ctk.CTkFrame(tab, fg_color="transparent")
+        hdr.pack(fill="x", padx=10, pady=(10, 4))
+        ctk.CTkLabel(hdr, text="🎧  Listen Lab",
+                     font=(FONT_FAMILY, 18, "bold"),
+                     text_color=COLORS["text_primary"]).pack(side="left")
+
+        # ── Translate panel ──────────────────────────────────────────────────
+        from tag_suggester import TRANSLATE_LANGUAGES
+
+        self._listen_translate_var = tk.BooleanVar(value=False)
+        self._listen_translate_lang_var = ctk.StringVar(value="Spanish")
+        self._listen_translate_voice_var = ctk.StringVar(
+            value=getattr(self, "tts_voice_var", ctk.StringVar()).get()
+            if hasattr(self, "tts_voice_var") else "Default (Random)"
+        )
+
+        tr_card = ctk.CTkFrame(tab, fg_color=COLORS["bg_card"], corner_radius=10)
+        tr_card.pack(fill="x", padx=10, pady=(0, 4))
+
+        tr_top = ctk.CTkFrame(tr_card, fg_color="transparent")
+        tr_top.pack(fill="x", padx=12, pady=(8, 4))
+
+        tr_switch = ctk.CTkSwitch(
+            tr_top, text="Translate & Re-read",
+            variable=self._listen_translate_var,
+            font=(FONT_FAMILY, 12, "bold"),
+            text_color=COLORS["text_primary"],
+            progress_color=COLORS["accent"],
+            button_color=COLORS["accent_light"],
+            command=self._listen_translate_toggled,
+        )
+        tr_switch.pack(side="left")
+        self._make_tooltip(tr_switch,
+            "When on: Whisper transcribes → Qwen translates → TTS re-reads in target language")
+
+        # Controls shown only when translate is ON
+        self._listen_tr_controls = ctk.CTkFrame(tr_card, fg_color="transparent")
+        self._listen_tr_controls.pack(fill="x", padx=12, pady=(0, 8))
+
+        _lf = {"font": (FONT_FAMILY, 11), "text_color": COLORS["text_muted"], "anchor": "w"}
+        _ef = {"fg_color": COLORS["bg_input"], "button_color": COLORS["accent"],
+               "text_color": COLORS["text_primary"], "font": (FONT_FAMILY, 11),
+               "height": 30, "dynamic_resizing": False}
+
+        # Language
+        lang_col = ctk.CTkFrame(self._listen_tr_controls, fg_color="transparent")
+        lang_col.pack(side="left", padx=(0, 16))
+        ctk.CTkLabel(lang_col, text="Target Language", **_lf).pack(anchor="w")
+        lang_menu = ctk.CTkOptionMenu(
+            lang_col, variable=self._listen_translate_lang_var,
+            values=TRANSLATE_LANGUAGES, width=180, **_ef)
+        lang_menu.pack()
+        self._make_tooltip(lang_menu, "Language to translate audio into")
+
+        # Voice
+        voice_col = ctk.CTkFrame(self._listen_tr_controls, fg_color="transparent")
+        voice_col.pack(side="left", padx=(0, 16))
+        ctk.CTkLabel(voice_col, text="TTS Voice", **_lf).pack(anchor="w")
+        from voice_manager import VoiceManager
+        _voice_names = self.voices.get_voice_names() if hasattr(self, "voices") else ["Default (Random)"]
+        self._listen_voice_menu = ctk.CTkOptionMenu(
+            voice_col, variable=self._listen_translate_voice_var,
+            values=_voice_names, width=200, **_ef)
+        self._listen_voice_menu.pack()
+        self._make_tooltip(self._listen_voice_menu, "TTS voice used for the re-read")
+
+        # Hide controls initially (translate is OFF by default)
+        self._listen_tr_controls.pack_forget()
+
+        # ── Drop-zone hint ───────────────────────────────────────────────────
+        ctk.CTkLabel(tab,
+                     text="Drag & drop audio files here  (MP3, WAV, M4A, FLAC, OGG…)",
+                     font=(FONT_FAMILY, 11),
+                     text_color=COLORS["text_muted"]).pack(fill="x", padx=10)
+
+        # ── Scrollable playlist ──────────────────────────────────────────────
+        self._listen_scroll = ctk.CTkScrollableFrame(
+            tab, fg_color=COLORS["bg_card"], corner_radius=10)
+        self._listen_scroll.pack(fill="both", expand=True, padx=10, pady=(6, 4))
+
+        # ── Bottom bar ───────────────────────────────────────────────────────
+        bot = ctk.CTkFrame(tab, fg_color=COLORS["bg_card"], corner_radius=10, height=52)
+        bot.pack(fill="x", padx=10, pady=(0, 10))
+        bot.pack_propagate(False)
+
+        _bs = {"height": 34, "corner_radius": 7, "font": (FONT_FAMILY, 12)}
+        self._btn_listen_play = ctk.CTkButton(
+            bot, text="▶  Play Selected", width=140,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=self._listen_play_selected, **_bs)
+        self._btn_listen_play.pack(side="left", padx=(10, 4), pady=9)
+        self._make_tooltip(self._btn_listen_play, "Play all selected items in sequence")
+
+        _rm_sel = ctk.CTkButton(bot, text="🗑  Remove Selected", width=150,
+                      fg_color=COLORS["danger"], hover_color="#d43d62",
+                      command=self._listen_remove_selected, **_bs)
+        _rm_sel.pack(side="left", padx=(0, 12), pady=9)
+        self._make_tooltip(_rm_sel, "Remove selected items from the list")
+
+        _all_btn = ctk.CTkButton(bot, text="☑  All", width=70,
+                      fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                      command=lambda: self._listen_select_all(True), **_bs)
+        _all_btn.pack(side="left", padx=(0, 4), pady=9)
+        self._make_tooltip(_all_btn, "Select all items")
+
+        _none_btn = ctk.CTkButton(bot, text="☐  None", width=70,
+                      fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                      command=lambda: self._listen_select_all(False), **_bs)
+        _none_btn.pack(side="left", padx=(0, 4), pady=9)
+        self._make_tooltip(_none_btn, "Deselect all items")
+
+        self._listen_status = ctk.CTkLabel(bot, text="",
+                                           font=(FONT_FAMILY, 11),
+                                           text_color=COLORS["text_secondary"])
+        self._listen_status.pack(side="right", padx=12)
+
+        # ── Drag-and-drop ────────────────────────────────────────────────────
+        try:
+            import tkinterdnd2 as _dnd
+            tab.drop_target_register(_dnd.DND_FILES)
+            tab.dnd_bind("<<Drop>>", self._listen_on_drop)
+            self._listen_scroll.drop_target_register(_dnd.DND_FILES)
+            self._listen_scroll.dnd_bind("<<Drop>>", self._listen_on_drop)
+        except Exception:
+            pass
+
+        self._rebuild_listen_ui()
+
+    def _listen_translate_toggled(self):
+        if self._listen_translate_var.get():
+            self._listen_tr_controls.pack(fill="x", padx=12, pady=(0, 8))
+        else:
+            self._listen_tr_controls.pack_forget()
+
+    def _listen_on_drop(self, event):
+        _AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".wma"}
+        paths = self._parse_drop_data(event.data)
+        added = 0
+        for p in paths:
+            if os.path.splitext(p)[1].lower() in _AUDIO_EXTS:
+                self._listen_items.append({"path": p, "name": os.path.basename(p), "selected": False})
+                added += 1
+        if added:
+            self._rebuild_listen_ui()
+            self._listen_status.configure(text=f"Added {added} file(s)")
+
+    def _rebuild_listen_ui(self):
+        for w in self._listen_scroll.winfo_children():
+            w.destroy()
+
+        if not self._listen_items:
+            ctk.CTkLabel(self._listen_scroll,
+                         text="No files loaded — drag audio files here",
+                         font=(FONT_FAMILY, 12),
+                         text_color=COLORS["text_muted"]).pack(pady=30)
+            return
+
+        _ib = {"width": 32, "height": 32, "corner_radius": 5, "font": (FONT_FAMILY, 14)}
+
+        for idx, item in enumerate(self._listen_items):
+            is_playing = (idx == self._listen_preview_idx and not self._listen_preview_paused)
+
+            row = ctk.CTkFrame(self._listen_scroll,
+                               fg_color=COLORS["bg_input"] if item["selected"] else COLORS["bg_card"],
+                               corner_radius=7, height=42)
+            row.pack(fill="x", padx=4, pady=2)
+            row.pack_propagate(False)
+
+            # Checkbox
+            var = tk.BooleanVar(value=item["selected"])
+
+            def _on_check(v=var, i=idx):
+                self._listen_items[i]["selected"] = v.get()
+                self._rebuild_listen_ui()
+
+            cb = ctk.CTkCheckBox(row, text="", variable=var, width=24,
+                                 command=_on_check,
+                                 fg_color=COLORS["accent"],
+                                 hover_color=COLORS["accent_hover"])
+            cb.pack(side="left", padx=(8, 4))
+
+            # Name label
+            ctk.CTkLabel(row, text=item["name"],
+                         font=(FONT_FAMILY, 12),
+                         text_color=COLORS["text_primary"],
+                         anchor="w").pack(side="left", fill="x", expand=True, padx=4)
+
+            # Remove ✕
+            _rb = ctk.CTkButton(row, text="✕",
+                                fg_color=COLORS["danger"], hover_color="#d43d62",
+                                command=lambda i=idx: self._listen_remove(i), **_ib)
+            _rb.pack(side="right", padx=(0, 6))
+
+            # Metadata ⓘ
+            _mb = ctk.CTkButton(row, text="ⓘ",
+                                fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                border_color=COLORS["border"], border_width=1,
+                                command=lambda p=item["path"]: self._open_audio_meta_editor(p),
+                                **_ib)
+            _mb.pack(side="right", padx=(0, 2))
+            self._make_tooltip(_mb, "Edit audio metadata")
+
+            # Play ▶ / ⏸
+            _pp = ctk.CTkButton(
+                row,
+                text="⏸" if is_playing else "▶",
+                fg_color=COLORS["success"] if is_playing else COLORS["bg_input"],
+                hover_color="#05b890" if is_playing else COLORS["bg_card_hover"],
+                border_color=COLORS["success"], border_width=1,
+                command=lambda i=idx: self._listen_toggle_play(i),
+                **_ib,
+            )
+            _pp.pack(side="right", padx=(0, 2))
+            self._make_tooltip(_pp, "Pause" if is_playing else "Play")
+
+    # ── Listen Lab playback ────────────────────────────────────────────
+
+    def _listen_toggle_play(self, idx: int):
+        import sounddevice as _sd
+        import soundfile as _sf
+
+        if idx < 0 or idx >= len(self._listen_items):
+            return
+        path = self._listen_items[idx]["path"]
+        if not os.path.isfile(path):
+            messagebox.showwarning("Listen Lab", f"File not found:\n{path}", parent=self.root)
+            return
+
+        # Toggle pause if same item
+        if self._listen_preview_idx == idx:
+            self._listen_preview_paused = not self._listen_preview_paused
+            self._rebuild_listen_ui()
+            return
+
+        # Stop previous
+        self._listen_stop_preview()
+
+        try:
+            data, sr = _sf.read(path, dtype="float32")
+        except Exception as exc:
+            messagebox.showerror("Listen Lab", f"Cannot read audio:\n{exc}", parent=self.root)
+            return
+
+        if data.ndim > 1:
+            data = data[:, 0]
+
+        self._listen_preview_audio = data
+        self._listen_preview_sr = sr
+        self._listen_preview_pos = 0
+        self._listen_preview_idx = idx
+        self._listen_preview_paused = False
+        self._rebuild_listen_ui()
+
+        def _cb(outdata, frames, time_info, status):
+            if self._listen_preview_paused:
+                outdata[:] = 0
+                return
+            vol = getattr(self, "vol_slider", None)
+            vol = (vol.get() / 100.0) if vol else 1.0
+            remaining = len(self._listen_preview_audio) - self._listen_preview_pos
+            if remaining <= 0:
+                outdata[:] = 0
+                raise _sd.CallbackStop()
+            take = min(frames, remaining)
+            chunk = (self._listen_preview_audio[
+                self._listen_preview_pos:self._listen_preview_pos + take
+            ] * vol).astype(np.float32)
+            outdata[:take, 0] = chunk
+            if take < frames:
+                outdata[take:] = 0
+            self._listen_preview_pos += take
+
+        def _finished():
+            self._listen_preview_idx = -1
+            self._listen_preview_paused = False
+            self._listen_preview_stream = None
+            self.root.after(0, self._rebuild_listen_ui)
+
+        stream = _sd.OutputStream(
+            samplerate=sr, channels=1,
+            dtype="float32", callback=_cb,
+            finished_callback=_finished,
+        )
+        self._listen_preview_stream = stream
+        stream.start()
+
+    def _listen_stop_preview(self):
+        if self._listen_preview_stream:
+            try:
+                self._listen_preview_stream.stop()
+                self._listen_preview_stream.close()
+            except Exception:
+                pass
+            self._listen_preview_stream = None
+        self._listen_preview_idx = -1
+        self._listen_preview_paused = False
+
+    def _listen_play_selected(self):
+        """Play all selected items in sequence."""
+        selected = [i for i, it in enumerate(self._listen_items) if it["selected"]]
+        if not selected:
+            self._listen_status.configure(text="No items selected")
+            return
+        self._listen_queue = list(selected)
+        self._listen_play_next()
+
+    def _listen_play_next(self):
+        if not getattr(self, "_listen_queue", []):
+            return
+        nxt = self._listen_queue.pop(0)
+        # chain: after this one finishes → play next
+        _orig_idx = self._listen_preview_idx
+
+        import sounddevice as _sd
+        import soundfile as _sf
+
+        if nxt < 0 or nxt >= len(self._listen_items):
+            self._listen_play_next()
+            return
+        path = self._listen_items[nxt]["path"]
+        if not os.path.isfile(path):
+            self._listen_play_next()
+            return
+
+        self._listen_stop_preview()
+
+        try:
+            data, sr = _sf.read(path, dtype="float32")
+        except Exception:
+            self._listen_play_next()
+            return
+
+        if data.ndim > 1:
+            data = data[:, 0]
+
+        self._listen_preview_audio = data
+        self._listen_preview_sr = sr
+        self._listen_preview_pos = 0
+        self._listen_preview_idx = nxt
+        self._listen_preview_paused = False
+        self._rebuild_listen_ui()
+
+        def _cb(outdata, frames, time_info, status):
+            if self._listen_preview_paused:
+                outdata[:] = 0
+                return
+            vol = getattr(self, "vol_slider", None)
+            vol = (vol.get() / 100.0) if vol else 1.0
+            remaining = len(self._listen_preview_audio) - self._listen_preview_pos
+            if remaining <= 0:
+                outdata[:] = 0
+                raise _sd.CallbackStop()
+            take = min(frames, remaining)
+            chunk = (self._listen_preview_audio[
+                self._listen_preview_pos:self._listen_preview_pos + take
+            ] * vol).astype(np.float32)
+            outdata[:take, 0] = chunk
+            if take < frames:
+                outdata[take:] = 0
+            self._listen_preview_pos += take
+
+        def _finished():
+            self._listen_preview_stream = None
+            self._listen_preview_idx = -1
+            self._listen_preview_paused = False
+            self.root.after(0, self._rebuild_listen_ui)
+            self.root.after(50, self._listen_play_next)
+
+        stream = _sd.OutputStream(
+            samplerate=sr, channels=1,
+            dtype="float32", callback=_cb,
+            finished_callback=_finished,
+        )
+        self._listen_preview_stream = stream
+        stream.start()
+
+    def _listen_remove(self, idx: int):
+        if self._listen_preview_idx == idx:
+            self._listen_stop_preview()
+        if 0 <= idx < len(self._listen_items):
+            self._listen_items.pop(idx)
+            self._rebuild_listen_ui()
+
+    def _listen_remove_selected(self):
+        self._listen_stop_preview()
+        self._listen_items = [it for it in self._listen_items if not it["selected"]]
+        self._rebuild_listen_ui()
+
+    def _listen_select_all(self, state: bool):
+        for it in self._listen_items:
+            it["selected"] = state
+        self._rebuild_listen_ui()
+
     # ==================================================================
     # TAB 3: Voice Lab
     # ==================================================================
@@ -1266,6 +1978,9 @@ class FishTalkUI:
                          getattr(self.settings, "tts_chunk_length", 150), 10, "tts_chunk_length", fmt="{:.0f}",
                          tooltip="Tokens generated per speech chunk — smaller = lower latency but choppier; larger = smoother but slower to start. Default 150.")
 
+        # Mic recorder card
+        self._build_mic_recorder_card(tab)
+
         # Voice grid (scrollable)
         self.voice_grid_frame = ctk.CTkScrollableFrame(
             tab,
@@ -1276,6 +1991,411 @@ class FishTalkUI:
         self.voice_grid_frame.pack(fill="both", expand=True, padx=15, pady=(0, 10))
 
         self._refresh_voice_grid()
+
+    def _build_mic_recorder_card(self, parent):
+        """Build the microphone recording section for voice cloning."""
+        import time as _time
+
+        MAX_SEC = 180
+
+        # Instance state
+        self._mic_rec_stream     = None
+        self._mic_rec_frames     = []
+        self._mic_rec_start      = 0.0
+        self._mic_rec_running    = False
+        self._mic_rec_path       = None
+        self._mic_preview_stream = None
+        self._mic_preview_audio  = None
+        self._mic_preview_pos    = 0
+        self._mic_preview_sr     = 44100
+        self._mic_preview_paused = False
+        self._mic_timer_id       = None
+
+        # ── Card ────────────────────────────────────────────────────────
+        card = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=10)
+        card.pack(fill="x", padx=15, pady=(0, 8))
+
+        ctk.CTkLabel(card, text="🎙  Record Voice Sample",
+                     font=(FONT_FAMILY, 13, "bold"),
+                     text_color=COLORS["text_secondary"]).pack(anchor="w", padx=14, pady=(10, 6))
+
+        # ── Mic selector ─────────────────────────────────────────────────
+        mic_row = ctk.CTkFrame(card, fg_color="transparent")
+        mic_row.pack(fill="x", padx=14, pady=(0, 6))
+        ctk.CTkLabel(mic_row, text="Microphone:",
+                     font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"],
+                     width=90, anchor="w").pack(side="left")
+
+        try:
+            import sounddevice as _sd_q
+            _devs = _sd_q.query_devices()
+            _input_devs = [(i, d["name"]) for i, d in enumerate(_devs) if d["max_input_channels"] > 0]
+        except Exception:
+            _input_devs = []
+        _dev_names = [d[1] for d in _input_devs] or ["Default"]
+        _mic_var = ctk.StringVar(value=_dev_names[0])
+        ctk.CTkOptionMenu(mic_row, variable=_mic_var, values=_dev_names,
+                          fg_color=COLORS["bg_input"], button_color=COLORS["accent"],
+                          text_color=COLORS["text_primary"], font=(FONT_FAMILY, 11),
+                          height=30, dynamic_resizing=False).pack(
+                              side="left", fill="x", expand=True, padx=(8, 0))
+
+        # ── Record / Stop buttons ─────────────────────────────────────────
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.pack(fill="x", padx=14, pady=(0, 4))
+        _bs = {"height": 34, "corner_radius": 7, "font": (FONT_FAMILY, 12, "bold")}
+
+        btn_record = ctk.CTkButton(btn_row, text="●  Record", width=120,
+                                   fg_color=COLORS["danger"], hover_color="#d43d62",
+                                   command=lambda: _start_recording(), **_bs)
+        btn_record.pack(side="left", padx=(0, 8))
+        btn_stop = ctk.CTkButton(btn_row, text="■  Stop", width=100,
+                                 fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                 border_color=COLORS["border"], border_width=1,
+                                 state="disabled", command=lambda: _stop_recording(), **_bs)
+        btn_stop.pack(side="left")
+        rec_status = ctk.CTkLabel(btn_row, text="No recording",
+                                  font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"])
+        rec_status.pack(side="left", padx=(14, 0))
+
+        # ── Progress bar canvas ──────────────────────────────────────────
+        # Extra height for marker labels above and time below the bar.
+        canvas = tk.Canvas(card, height=58, bg=COLORS["bg_card"],
+                           highlightthickness=0, bd=0)
+        canvas.pack(fill="x", padx=14, pady=(4, 2))
+
+        _MARKERS = [
+            (15,  "minimum",     COLORS["warning"]),
+            (30,  "recommended", COLORS["success"]),
+            (90,  "ideal",       COLORS["accent_light"]),
+        ]
+        _BAR_Y  = 26   # top of bar
+        _BAR_H  = 14   # height of bar
+
+        def _draw_progress(elapsed: float = 0.0):
+            canvas.delete("all")
+            w = canvas.winfo_width() or 460
+
+            # Background track
+            canvas.create_rectangle(0, _BAR_Y, w, _BAR_Y + _BAR_H,
+                                    fill="#2a2a4a", outline="")
+
+            # Filled portion — colour shifts as duration grows
+            fill_w = min(elapsed / MAX_SEC, 1.0) * w
+            fill_color = (COLORS["danger"]  if elapsed < 15
+                          else COLORS["warning"] if elapsed < 30
+                          else COLORS["success"])
+            if fill_w > 1:
+                canvas.create_rectangle(0, _BAR_Y, fill_w, _BAR_Y + _BAR_H,
+                                        fill=fill_color, outline="")
+
+            # Marker tick lines + labels above bar
+            for sec, label, color in _MARKERS:
+                x = (sec / MAX_SEC) * w
+                canvas.create_line(x, _BAR_Y - 12, x, _BAR_Y + _BAR_H + 2,
+                                   fill=color, width=2, dash=(3, 2))
+                canvas.create_text(x, _BAR_Y - 14, text=label,
+                                   fill=color, font=("Segoe UI", 8),
+                                   anchor="s")
+
+            # Elapsed / max time (bottom-right)
+            e_str = f"{int(elapsed // 60)}:{int(elapsed % 60):02d}"
+            m_str = f"{MAX_SEC // 60}:{MAX_SEC % 60:02d}"
+            canvas.create_text(w - 2, _BAR_Y + _BAR_H + 12,
+                               text=f"{e_str} / {m_str}",
+                               fill=COLORS["text_muted"],
+                               font=("Segoe UI", 9), anchor="e")
+
+        canvas.bind("<Configure>", lambda e: _draw_progress(
+            _time.time() - self._mic_rec_start if self._mic_rec_running else 0.0
+        ))
+        _draw_progress(0.0)
+
+        # ── Playback / result row ─────────────────────────────────────────
+        res_row = ctk.CTkFrame(card, fg_color="transparent")
+        res_row.pack(fill="x", padx=14, pady=(4, 12))
+
+        rec_file_lbl = ctk.CTkLabel(res_row, text="No recording yet",
+                                    font=(FONT_FAMILY, 11),
+                                    text_color=COLORS["text_muted"], anchor="w")
+        rec_file_lbl.pack(side="left", fill="x", expand=True)
+
+        _ib = {"width": 34, "height": 34, "corner_radius": 6, "font": (FONT_FAMILY, 13)}
+        btn_preview = ctk.CTkButton(res_row, text="▶",
+                                    fg_color=COLORS["bg_input"],
+                                    hover_color=COLORS["bg_card_hover"],
+                                    border_color=COLORS["border"], border_width=1,
+                                    state="disabled",
+                                    command=lambda: _toggle_preview(), **_ib)
+        btn_preview.pack(side="left", padx=(8, 4))
+        self._make_tooltip(btn_preview, "Preview recording")
+
+        btn_save_rec = ctk.CTkButton(res_row, text="💾",
+                                     fg_color=COLORS["bg_input"],
+                                     hover_color=COLORS["bg_card_hover"],
+                                     border_color=COLORS["border"], border_width=1,
+                                     state="disabled",
+                                     command=lambda: _save_recording(), **_ib)
+        btn_save_rec.pack(side="left", padx=(0, 16))
+        self._make_tooltip(btn_save_rec, "Save recording to file")
+
+        btn_clone_rec = ctk.CTkButton(res_row, text="🧬  Clone Voice",
+                                      width=150, height=36, corner_radius=8,
+                                      fg_color=COLORS["accent"],
+                                      hover_color=COLORS["accent_hover"],
+                                      font=(FONT_FAMILY, 13, "bold"),
+                                      state="disabled",
+                                      command=lambda: _clone_from_recording())
+        btn_clone_rec.pack(side="right")
+
+        # ──────────────────────────────────────────────────────────────────
+        # Inner logic (closures referencing local widgets above)
+        # ──────────────────────────────────────────────────────────────────
+
+        def _get_device_index():
+            sel = _mic_var.get()
+            for idx, name in _input_devs:
+                if name == sel:
+                    return idx
+            return None  # sounddevice default
+
+        def _tick():
+            if not self._mic_rec_running:
+                return
+            elapsed = _time.time() - self._mic_rec_start
+            _draw_progress(elapsed)
+            rec_status.configure(text=f"Recording  {int(elapsed // 60)}:{int(elapsed % 60):02d}")
+            if elapsed >= MAX_SEC:
+                _stop_recording()
+                return
+            self._mic_timer_id = parent.after(100, _tick)
+
+        def _start_recording():
+            import sounddevice as _sd2
+            if self._mic_rec_running:
+                return
+            _stop_preview_internal()
+            self._mic_rec_frames   = []
+            self._mic_rec_running  = True
+            self._mic_rec_start    = _time.time()
+            self._mic_rec_path     = None
+            btn_record.configure(state="disabled")
+            btn_stop.configure(state="normal")
+            btn_preview.configure(state="disabled")
+            btn_save_rec.configure(state="disabled")
+            btn_clone_rec.configure(state="disabled")
+            rec_status.configure(text="Recording  0:00", text_color=COLORS["danger"])
+            rec_file_lbl.configure(text="Recording…", text_color=COLORS["danger"])
+
+            SR = 44100
+            dev_idx = _get_device_index()
+
+            def _audio_cb(indata, frames, _t, _st):
+                if self._mic_rec_running:
+                    self._mic_rec_frames.append(indata.copy())
+
+            try:
+                self._mic_rec_stream = _sd2.InputStream(
+                    samplerate=SR, channels=1, dtype="float32",
+                    device=dev_idx, callback=_audio_cb,
+                )
+                self._mic_rec_stream.start()
+                self._mic_preview_sr = SR
+                self._mic_timer_id = parent.after(100, _tick)
+            except Exception as exc:
+                self._mic_rec_running = False
+                btn_record.configure(state="normal")
+                btn_stop.configure(state="disabled")
+                rec_status.configure(text=f"Mic error: {exc}",
+                                     text_color=COLORS["danger"])
+
+        def _stop_recording():
+            if not self._mic_rec_running:
+                return
+            self._mic_rec_running = False
+            if self._mic_timer_id:
+                try:
+                    parent.after_cancel(self._mic_timer_id)
+                except Exception:
+                    pass
+                self._mic_timer_id = None
+            if self._mic_rec_stream:
+                try:
+                    self._mic_rec_stream.stop()
+                    self._mic_rec_stream.close()
+                except Exception:
+                    pass
+                self._mic_rec_stream = None
+
+            elapsed = _time.time() - self._mic_rec_start
+            _draw_progress(elapsed)
+            btn_record.configure(state="normal")
+            btn_stop.configure(state="disabled")
+
+            if not self._mic_rec_frames:
+                rec_status.configure(text="Nothing captured",
+                                     text_color=COLORS["text_muted"])
+                rec_file_lbl.configure(text="No recording yet",
+                                       text_color=COLORS["text_muted"])
+                return
+
+            import soundfile as _sf2
+            audio_data = np.concatenate(self._mic_rec_frames, axis=0).flatten().astype(np.float32)
+            self._mic_preview_audio = audio_data
+            self._mic_preview_pos   = 0
+
+            os.makedirs(AUDIO_TEMP_DIR, exist_ok=True)
+            tmp_path = os.path.join(AUDIO_TEMP_DIR, f"mic_rec_{int(_time.time())}.wav")
+            _sf2.write(tmp_path, audio_data, self._mic_preview_sr)
+            self._mic_rec_path = tmp_path
+
+            dur = len(audio_data) / self._mic_preview_sr
+            rec_status.configure(text=f"Done — {dur:.1f}s recorded",
+                                  text_color=COLORS["success"])
+            rec_file_lbl.configure(text=os.path.basename(tmp_path),
+                                   text_color=COLORS["text_primary"])
+            btn_preview.configure(state="normal")
+            btn_save_rec.configure(state="normal")
+            btn_clone_rec.configure(state="normal")
+
+        def _stop_preview_internal():
+            if self._mic_preview_stream:
+                try:
+                    self._mic_preview_stream.stop()
+                    self._mic_preview_stream.close()
+                except Exception:
+                    pass
+                self._mic_preview_stream = None
+            self._mic_preview_paused = False
+
+        def _toggle_preview():
+            import sounddevice as _sd2
+            # Toggle pause if already streaming
+            if self._mic_preview_stream:
+                self._mic_preview_paused = not self._mic_preview_paused
+                btn_preview.configure(text="▶" if self._mic_preview_paused else "⏸")
+                return
+            if self._mic_preview_audio is None:
+                return
+            self._mic_preview_pos    = 0
+            self._mic_preview_paused = False
+
+            def _cb(outdata, frames, _t, _st):
+                if self._mic_preview_paused:
+                    outdata[:] = 0
+                    return
+                remaining = len(self._mic_preview_audio) - self._mic_preview_pos
+                if remaining <= 0:
+                    outdata[:] = 0
+                    raise _sd2.CallbackStop()
+                take = min(frames, remaining)
+                chunk = self._mic_preview_audio[
+                    self._mic_preview_pos:self._mic_preview_pos + take
+                ].astype(np.float32)
+                outdata[:take, 0] = chunk
+                if take < frames:
+                    outdata[take:] = 0
+                self._mic_preview_pos += take
+
+            def _done():
+                self._mic_preview_stream = None
+                self._mic_preview_paused = False
+                parent.after(0, lambda: btn_preview.configure(text="▶"))
+
+            stream = _sd2.OutputStream(
+                samplerate=self._mic_preview_sr, channels=1,
+                dtype="float32", callback=_cb, finished_callback=_done,
+            )
+            self._mic_preview_stream = stream
+            stream.start()
+            btn_preview.configure(text="⏸")
+
+        def _save_recording():
+            if not self._mic_rec_path or not os.path.isfile(self._mic_rec_path):
+                return
+            from tkinter.filedialog import asksaveasfilename
+            dest = asksaveasfilename(
+                parent=self.root,
+                defaultextension=".wav",
+                filetypes=[("WAV audio", "*.wav"), ("All files", "*.*")],
+                initialfile=os.path.basename(self._mic_rec_path),
+                title="Save recording as…",
+            )
+            if dest:
+                import shutil
+                shutil.copy2(self._mic_rec_path, dest)
+
+        def _clone_from_recording():
+            if not self._mic_rec_path or not os.path.isfile(self._mic_rec_path):
+                messagebox.showwarning("Clone Voice", "No recording available.", parent=self.root)
+                return
+            _stop_preview_internal()
+            dialog = ctk.CTkInputDialog(
+                text="Enter a name for this voice profile:",
+                title="Clone Voice from Recording",
+            )
+            name = dialog.get_input()
+            if not name or not name.strip():
+                return
+            name = name.strip()
+            if self.voices.voice_exists(name):
+                messagebox.showwarning("FishTalk", f"Voice '{name}' already exists.", parent=self.root)
+                return
+
+            rec_path = self._mic_rec_path
+
+            def _do_clone(transcript: str):
+                try:
+                    tts = self.tts if self.tts.is_loaded else None
+                    self.voices.clone_voice(
+                        name=name,
+                        reference_wav_path=rec_path,
+                        tts_engine=tts,
+                        prompt_text=transcript,
+                    )
+                    self.root.after(0, self._refresh_voice_grid)
+                    self.root.after(0, lambda: messagebox.showinfo(
+                        "FishTalk",
+                        f"Voice '{name}' created successfully!"
+                        + (f"\n\nTranscript:\n\"{transcript[:120]}{'…' if len(transcript) > 120 else ''}\""
+                           if transcript else ""),
+                    ))
+                except Exception as exc:
+                    self.root.after(0, lambda e=exc: messagebox.showerror(
+                        "Error", f"Voice cloning failed:\n{e}"
+                    ))
+
+            def _transcribe_and_clone():
+                transcript_result = [None]
+                done_evt = threading.Event()
+
+                def _on_transcript(text, _info):
+                    transcript_result[0] = text.strip()
+                    done_evt.set()
+
+                def _on_stt_error(_exc):
+                    transcript_result[0] = ""
+                    done_evt.set()
+
+                def _on_stt_ready():
+                    self.stt.transcribe(
+                        audio_path=rec_path,
+                        on_complete=_on_transcript,
+                        on_error=_on_stt_error,
+                    )
+                    done_evt.wait(timeout=120)
+                    _do_clone(transcript_result[0] or "")
+
+                if self.stt.is_loaded:
+                    _on_stt_ready()
+                else:
+                    self.stt.load_model(on_ready=_on_stt_ready, on_error=_on_stt_error)
+                    done_evt.wait(timeout=180)
+
+            self.root.after(0, lambda: self.tts_status.configure(
+                text="Transcribing recording for voice conditioning…"
+            ))
+            threading.Thread(target=_transcribe_and_clone, daemon=True, name="MicClone").start()
 
     def _refresh_voice_grid(self):
         """Rebuild the voice cards grid."""
@@ -1767,6 +2887,18 @@ class FishTalkUI:
         )
         self.qwen_status_label.pack(side="right", padx=(5, 15), pady=12)
 
+        ctk.CTkButton(
+            qwen_row,
+            text="✏  Edit Prompts",
+            width=110,
+            height=28,
+            corner_radius=6,
+            fg_color="#5a3e8a",
+            hover_color="#7b5ea7",
+            font=(FONT_FAMILY, 11),
+            command=self._open_prompt_editor,
+        ).pack(side="right", padx=(0, 5), pady=12)
+
         # Install log (hidden until install starts)
         self._llama_log_row = setting_row(main)
         self._llama_log_label = ctk.CTkLabel(
@@ -1864,6 +2996,8 @@ class FishTalkUI:
         for widget in self.playlist_frame.winfo_children():
             widget.destroy()
 
+        self._drag_row_widgets: list = []  # [(idx, row_widget), ...]
+
         if not self._playlist_items:
             self.playlist_empty_label = ctk.CTkLabel(
                 self.playlist_frame,
@@ -1903,8 +3037,23 @@ class FishTalkUI:
             )
             row.pack(fill="x", pady=2, padx=4)
             row.pack_propagate(False)
+            self._drag_row_widgets.append((idx, row))
 
             txt_color = "#ffffff" if is_active else COLORS["text_primary"]
+
+            # ── Drag handle ──────────────────────────────────────────────
+            _handle = ctk.CTkLabel(
+                row,
+                text="⠿",
+                font=(FONT_FAMILY, 16),
+                text_color=COLORS["text_muted"],
+                width=20,
+                cursor="fleur",
+            )
+            _handle.pack(side="left", padx=(4, 0))
+            _handle.bind("<ButtonPress-1>",   lambda e, i=idx: self._drag_start(e, i))
+            _handle.bind("<B1-Motion>",        lambda e, i=idx: self._drag_motion(e, i))
+            _handle.bind("<ButtonRelease-1>",  lambda e, i=idx: self._drag_end(e, i))
 
             # ── Left: checkbox ───────────────────────────────────────────
             sel_var = ctk.BooleanVar(value=item.get("selected", True))
@@ -2201,7 +3350,7 @@ class FishTalkUI:
             _rb.pack(side="right", padx=(0, 6))
             self._make_tooltip(_rb, "Remove item from playlist")
 
-            # After audio exists (near ✕): play/pause 🔊, save 📁
+            # After audio exists (near ✕): play/pause 🔊, save 📁, info ⓘ
             if has_audio:
                 is_previewing = (idx == self._preview_idx and not self._preview_paused)
                 _sb = ctk.CTkButton(
@@ -2223,6 +3372,17 @@ class FishTalkUI:
                 )
                 _pb.pack(side="right", padx=(0, 2))
                 self._make_tooltip(_pb, "Pause preview" if is_previewing else "Play audio preview")
+                _ib_btn = ctk.CTkButton(
+                    row, text="ⓘ",
+                    fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                    border_color=COLORS["border"], border_width=1,
+                    command=lambda i=idx: self._open_audio_meta_editor(
+                        self._playlist_items[i].get("audio_path", "")
+                    ),
+                    **_ib,
+                )
+                _ib_btn.pack(side="right", padx=(0, 2))
+                self._make_tooltip(_ib_btn, "Edit audio metadata")
 
             # After voice dropdowns:
             #  Active  → ⏸ pause  ⊘ cancel
@@ -2382,6 +3542,103 @@ class FishTalkUI:
         except Exception as exc:
             messagebox.showerror("Save Audio", f"Export failed:\n{exc}", parent=self.root)
 
+    def _open_audio_meta_editor(self, audio_path: str):
+        """Open a window to view/edit audio file metadata using FFmpeg."""
+        if not audio_path or not os.path.isfile(audio_path):
+            messagebox.showwarning("Metadata", "No audio file found.", parent=self.root)
+            return
+        if not is_ffmpeg_available():
+            messagebox.showerror("Metadata", "FFmpeg is required to edit metadata but was not found.", parent=self.root)
+            return
+
+        import subprocess, json, shutil, tempfile
+
+        # ── Read existing tags via ffprobe ──────────────────────────────
+        existing: dict = {}
+        try:
+            result = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", audio_path],
+                capture_output=True, text=True, timeout=15,
+            )
+            info = json.loads(result.stdout)
+            existing = {k.lower(): v for k, v in info.get("format", {}).get("tags", {}).items()}
+        except Exception as exc:
+            logger.warning("ffprobe failed: %s", exc)
+
+        # ── Build editor window ─────────────────────────────────────────
+        win = ctk.CTkToplevel(self.root)
+        win.title(f"Metadata — {os.path.basename(audio_path)}")
+        win.geometry("480x400")
+        win.configure(fg_color=COLORS["bg_dark"])
+        win.grab_set()
+        win.lift()
+        win.focus_force()
+
+        _lf = {"font": (FONT_FAMILY, 12), "text_color": COLORS["text_secondary"],
+               "anchor": "w", "width": 100}
+        _ef = {"font": (FONT_FAMILY, 12), "fg_color": COLORS["bg_input"],
+               "text_color": COLORS["text_primary"], "border_color": COLORS["border"],
+               "border_width": 1, "width": 300, "height": 34}
+
+        fields_cfg = [
+            ("title",   "Title"),
+            ("artist",  "Artist / Author"),
+            ("album",   "Album"),
+            ("date",    "Year"),
+            ("genre",   "Genre"),
+            ("comment", "Comment"),
+        ]
+
+        entries: dict = {}
+        form = ctk.CTkFrame(win, fg_color=COLORS["bg_card"], corner_radius=10)
+        form.pack(fill="both", expand=True, padx=20, pady=(20, 10))
+
+        for tag, label in fields_cfg:
+            row = ctk.CTkFrame(form, fg_color="transparent")
+            row.pack(fill="x", padx=16, pady=4)
+            ctk.CTkLabel(row, text=label, **_lf).pack(side="left")
+            ent = ctk.CTkEntry(row, **_ef)
+            ent.insert(0, existing.get(tag, ""))
+            ent.pack(side="left", padx=(8, 0))
+            entries[tag] = ent
+
+        def _save_meta():
+            meta_args = []
+            for tag, _ in fields_cfg:
+                val = entries[tag].get().strip()
+                meta_args += ["-metadata", f"{tag}={val}"]
+
+            ext = os.path.splitext(audio_path)[1].lower()
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix=ext)
+            os.close(tmp_fd)
+            try:
+                cmd = (
+                    ["ffmpeg", "-y", "-i", audio_path]
+                    + meta_args
+                    + ["-c", "copy", tmp_path]
+                )
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                if r.returncode != 0:
+                    raise RuntimeError(r.stderr[-600:])
+                shutil.move(tmp_path, audio_path)
+                messagebox.showinfo("Metadata", "Metadata saved successfully.", parent=win)
+                win.destroy()
+            except Exception as exc:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                messagebox.showerror("Metadata", f"Failed to save metadata:\n{exc}", parent=win)
+
+        btn_row = ctk.CTkFrame(win, fg_color="transparent")
+        btn_row.pack(pady=(0, 16))
+        ctk.CTkButton(btn_row, text="💾  Save", width=120, height=36,
+                      fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                      font=(FONT_FAMILY, 13, "bold"), command=_save_meta).pack(side="left", padx=6)
+        ctk.CTkButton(btn_row, text="Cancel", width=100, height=36,
+                      fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                      font=(FONT_FAMILY, 13), command=win.destroy).pack(side="left", padx=6)
+
     def _tts_remove_item(self, index: int):
         if self._preview_idx == index:
             self._stop_preview()
@@ -2467,6 +3724,8 @@ class FishTalkUI:
             self._preview_stream = None
         self._preview_idx = -1
         self._preview_paused = False
+        self._preview_queue = []
+        self._show_play_btns(False)
 
     def _sync_gen_settings_to_engine(self):
         """Push persisted generation quality settings into the TTS engine."""
@@ -2680,12 +3939,83 @@ class FishTalkUI:
 
         self._run_tts_for_indices(indices)
 
+    # ── Playlist drag-to-reorder ─────────────────────────────────────────
+
+    def _drag_start(self, event, idx: int):
+        self._drag_src = idx
+        self._drag_over = idx
+        event.widget.grab_set()
+
+    def _drag_motion(self, event, _idx: int):
+        if not hasattr(self, "_drag_src") or self._drag_src is None:
+            return
+        x = event.widget.winfo_rootx() + event.x
+        y = event.widget.winfo_rooty() + event.y
+        target = self._row_at(x, y)
+        if target is not None and target != self._drag_over:
+            self._drag_over = target
+            self.tts_status.configure(
+                text=f"⠿ Drop at position {target + 1}"
+            )
+
+    def _drag_end(self, event, _idx: int):
+        if not hasattr(self, "_drag_src") or self._drag_src is None:
+            return
+        try:
+            event.widget.grab_release()
+        except Exception:
+            pass
+        x = event.widget.winfo_rootx() + event.x
+        y = event.widget.winfo_rooty() + event.y
+        target = self._row_at(x, y)
+        src = self._drag_src
+        self._drag_src = None
+        self._drag_over = None
+        if target is not None and target != src:
+            item = self._playlist_items.pop(src)
+            self._playlist_items.insert(target, item)
+            self._rebuild_playlist_ui()
+        self.tts_status.configure(text="Ready")
+
+    def _row_at(self, x_screen: int, y_screen: int):
+        """Return the playlist item index under screen coords (x, y), or None."""
+        for item_idx, row_widget in getattr(self, "_drag_row_widgets", []):
+            try:
+                rx = row_widget.winfo_rootx()
+                ry = row_widget.winfo_rooty()
+                rw = row_widget.winfo_width()
+                rh = row_widget.winfo_height()
+                if rx <= x_screen <= rx + rw and ry <= y_screen <= ry + rh:
+                    return item_idx
+            except Exception:
+                pass
+        return None
+
+    def _show_convert_btns(self, show: bool):
+        """Show or hide the pause/stop buttons for Convert Selected."""
+        if show:
+            self.btn_pause.pack(side="left", padx=(0, 2), after=self._btn_convert)
+            self.btn_stop.pack(side="left", padx=(0, 12), after=self.btn_pause)
+        else:
+            self.btn_pause.pack_forget()
+            self.btn_stop.pack_forget()
+
+    def _show_play_btns(self, show: bool):
+        """Show or hide the pause/stop buttons for Play Selected."""
+        if show:
+            self.btn_play_pause.pack(side="left", padx=(0, 2), after=self._btn_play_sel)
+            self.btn_play_stop.pack(side="left", padx=(0, 12), after=self.btn_play_pause)
+        else:
+            self.btn_play_pause.pack_forget()
+            self.btn_play_stop.pack_forget()
+
     def _run_tts_for_indices(self, indices: list):
         """Generate TTS sequentially for the given list of item indices."""
         if not indices:
             return
         self._stop_preview()
         self._is_playing = True
+        self._show_convert_btns(True)
         self._tts_queue = list(indices)
         self._current_playing = self._tts_queue[0]
         self._rebuild_playlist_ui()
@@ -2696,6 +4026,7 @@ class FishTalkUI:
         if not getattr(self, "_tts_queue", None):
             self._is_playing = False
             self._current_playing = -1
+            self._show_convert_btns(False)
             self._rebuild_playlist_ui()
             self.tts_status.configure(text="Done")
             return
@@ -2722,11 +4053,13 @@ class FishTalkUI:
             return
         self._stop_preview()
         self._preview_queue = list(ready)
+        self._show_play_btns(True)
         self._run_preview_queue()
 
     def _run_preview_queue(self):
         if not getattr(self, "_preview_queue", None):
             self._preview_idx = -1
+            self._show_play_btns(False)
             self._rebuild_playlist_ui()
             return
         idx = self._preview_queue[0]
@@ -2810,12 +4143,15 @@ class FishTalkUI:
                 self._rebuild_playlist_ui()
                 _pre_engine = getattr(self.settings, 'engine', 'fish14')
 
+                _global_style = getattr(self._content_style_var, "get", lambda: "None")()
+
                 def _preprocess(
                     _eng=_pre_engine,
                     _lang=_target_lang,
                     _do_tr=_needs_translate,
                     _do_af=_needs_af,
                     _tr_tone=_tone,
+                    _style=_global_style,
                 ):
                     current_text = item["text"]
 
@@ -2826,7 +4162,7 @@ class FishTalkUI:
                             self.root.after(0, lambda l=_lang: self.tts_status.configure(
                                 text=f"Translating {item['name']} → {l}…"
                             ))
-                            translated = translate_for_voice(current_text, _lang, tone=_tr_tone)
+                            translated = translate_for_voice(current_text, _lang, tone=_tr_tone, content_style=_style)
                             if translated and translated.strip():
                                 current_text = translated
                         except Exception as exc:
@@ -2839,7 +4175,7 @@ class FishTalkUI:
                             self.root.after(0, lambda: self.tts_status.configure(
                                 text=f"AI Flow: enhancing {item['name']}…"
                             ))
-                            enhanced = enhance_for_tts(current_text, engine=_eng)
+                            enhanced = enhance_for_tts(current_text, engine=_eng, content_style=_style)
                             if enhanced and enhanced.strip():
                                 current_text = enhanced
                         except Exception as exc:
@@ -3105,6 +4441,7 @@ class FishTalkUI:
         self._is_paused = False
         self._current_playing = -1
         self._single_item_queue.clear()
+        self._show_convert_btns(False)
         self.tts.cancel()
         try:
             import sounddevice as sd
@@ -3451,11 +4788,12 @@ class FishTalkUI:
             messagebox.showinfo("FishTalk", "No transcription to export.")
             return
 
-        exts = {"txt": ".txt", "docx": ".docx", "pdf": ".pdf"}
+        exts   = {"txt": ".txt", "docx": ".docx", "pdf": ".pdf", "epub": ".epub"}
         ftypes = {
-            "txt": [("Text files", "*.txt")],
-            "docx": [("Word documents", "*.docx")],
-            "pdf": [("PDF files", "*.pdf")],
+            "txt":  [("Text files",      "*.txt")],
+            "docx": [("Word documents",  "*.docx")],
+            "pdf":  [("PDF files",       "*.pdf")],
+            "epub": [("EPUB ebooks",     "*.epub")],
         }
 
         path = filedialog.asksaveasfilename(
@@ -3467,10 +4805,121 @@ class FishTalkUI:
             return
 
         try:
-            {"txt": export_txt, "docx": export_docx, "pdf": export_pdf}[fmt](text, path)
+            if fmt == "epub":
+                # Strip timestamps — they're meaningless in an ebook reader
+                clean = re.sub(r'\[\d+\.\d+s\s*→\s*\d+\.\d+s\]\s*', '', text)
+                clean = re.sub(r'--- .* ---\n?', '', clean).strip()
+                from utils import export_epub
+                stem = os.path.splitext(os.path.basename(
+                    self._stt_audio_path or "transcription"
+                ))[0]
+                export_epub(clean, path, title=stem)
+            else:
+                {"txt": export_txt, "docx": export_docx, "pdf": export_pdf}[fmt](text, path)
             messagebox.showinfo("FishTalk", f"Saved to:\n{path}")
         except Exception as exc:
             messagebox.showerror("Error", f"Export failed:\n{exc}")
+
+    def _open_prompt_editor(self):
+        """Open a window to view and edit all Qwen AI prompts."""
+        from tag_suggester import get_prompt, set_prompt, save_prompts, reset_prompts
+
+        _PROMPT_TABS = [
+            ("Kokoro — Assisted Flow",       "kokoro_af"),
+            ("Fish 1.4 — Assisted Flow",     "fish14_af"),
+            ("S1 Mini — Assisted Flow",      "s1mini_af"),
+            ("S1 Full — Assisted Flow",      "s1_af"),
+            ("Translation",                  "translate"),
+            ("Tone Rewrite",                 "tone"),
+            ("Tag Generation",               "tag_gen"),
+            ("Grammar Check",                "grammar"),
+        ]
+
+        win = ctk.CTkToplevel(self.root)
+        win.title("Edit AI Prompts")
+        win.geometry("860x600")
+        win.resizable(True, True)
+        win.transient(self.root)
+        win.configure(fg_color=COLORS["bg_dark"])
+
+        ctk.CTkLabel(
+            win,
+            text="AI Prompt Editor",
+            font=(FONT_FAMILY, 15, "bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(anchor="w", padx=20, pady=(16, 4))
+
+        ctk.CTkLabel(
+            win,
+            text="Changes take effect immediately — saved to prompts.json alongside the app.\n"
+                 "Reset restores factory defaults and deletes prompts.json.",
+            font=(FONT_FAMILY, 10),
+            text_color=COLORS["text_muted"],
+            justify="left",
+        ).pack(anchor="w", padx=20, pady=(0, 10))
+
+        tabs = ctk.CTkTabview(
+            win,
+            fg_color=COLORS["bg_card"],
+            segmented_button_fg_color=COLORS["bg_input"],
+            segmented_button_selected_color="#5a3e8a",
+            segmented_button_selected_hover_color="#7b5ea7",
+            segmented_button_unselected_color=COLORS["bg_input"],
+            segmented_button_unselected_hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_primary"],
+        )
+        tabs.pack(fill="both", expand=True, padx=20, pady=(0, 8))
+
+        _textboxes: dict = {}
+        for label, key in _PROMPT_TABS:
+            tab = tabs.add(label)
+            tb = ctk.CTkTextbox(
+                tab,
+                fg_color=COLORS["bg_input"],
+                text_color=COLORS["text_primary"],
+                font=("Consolas", 11),
+                corner_radius=6,
+                border_color=COLORS["border"],
+                border_width=1,
+                wrap="word",
+            )
+            tb.pack(fill="both", expand=True, padx=8, pady=8)
+            tb.insert("1.0", get_prompt(key))
+            _textboxes[key] = tb
+
+        btn_row = ctk.CTkFrame(win, fg_color="transparent")
+        btn_row.pack(fill="x", padx=20, pady=(0, 16))
+
+        def _save():
+            for key, tb in _textboxes.items():
+                set_prompt(key, tb.get("1.0", "end-1c"))
+            save_prompts()
+            self.tts_status.configure(text="✅ Prompts saved")
+
+        def _reset():
+            from tkinter import messagebox as _mb
+            if not _mb.askyesno("Reset Prompts", "Reset ALL prompts to factory defaults?\nThis cannot be undone.", parent=win):
+                return
+            reset_prompts()
+            for key, tb in _textboxes.items():
+                tb.delete("1.0", "end")
+                tb.insert("1.0", get_prompt(key))
+            self.tts_status.configure(text="Prompts reset to defaults")
+
+        ctk.CTkButton(
+            btn_row, text="💾  Save All",
+            fg_color="#5a3e8a", hover_color="#7b5ea7",
+            font=(FONT_FAMILY, 12, "bold"), height=32, width=120,
+            command=_save,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btn_row, text="↺  Reset to Defaults",
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            border_color=COLORS["border"], border_width=1,
+            font=(FONT_FAMILY, 12), height=32, width=160,
+            command=_reset,
+        ).pack(side="left")
 
     def _on_stt_model_change(self, value):
         """Handle Whisper model size change."""

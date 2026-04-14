@@ -105,6 +105,9 @@ KOKORO_VOICES: dict[str, str] = {
     "🇨🇳 Yunxi (M)":        "zm_yunxi",
     "🇨🇳 Yunxia (M)":       "zm_yunxia",
     "🇨🇳 Yunyang (M)":      "zm_yunyang",
+    # ── Korean Female ─────────────────────────────────────────────────────
+    "🇰🇷 Bella (F)":        "kf_bella",
+    "🇰🇷 Heart (F)":        "kf_heart",
 }
 # fmt: on
 

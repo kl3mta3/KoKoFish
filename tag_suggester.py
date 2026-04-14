@@ -382,7 +382,7 @@ def generate_tags(
             with _llm_lock:
                 output = _llm.create_chat_completion(
                     messages=[
-                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "system", "content": _PROMPTS.get("tag_gen", _SYSTEM_PROMPT)},
                         {"role": "user", "content": chunk},
                     ],
                     max_tokens=int(len(chunk) * 1.5) + 64,
@@ -449,7 +449,7 @@ def grammar_check(
             with _llm_lock:
                 output = _llm.create_chat_completion(
                     messages=[
-                        {"role": "system", "content": _GRAMMAR_SYSTEM_PROMPT},
+                        {"role": "system", "content": _PROMPTS.get("grammar", _GRAMMAR_SYSTEM_PROMPT)},
                         {"role": "user",   "content": chunk},
                     ],
                     max_tokens=int(len(chunk) * 1.5) + 64,
@@ -555,6 +555,75 @@ Rules:
 3. Keep roughly the same length — do not add new content or remove key details.
 4. Return ONLY the rewritten text. No explanations, no preamble."""
 
+# ---------------------------------------------------------------------------
+# Mutable prompts dict — editable at runtime, persisted to JSON
+# ---------------------------------------------------------------------------
+
+import json as _json
+
+_PROMPTS_FILE = os.path.join(APP_DIR, "prompts.json")
+
+# Keys map to the prompt constants above.  Values can be replaced via
+# the prompt editor window without touching this source file.
+_PROMPTS: dict = {
+    "tag_gen":    _SYSTEM_PROMPT,
+    "grammar":    _GRAMMAR_SYSTEM_PROMPT,
+    "fish14_af":  _ENHANCE_SYSTEM_PROMPT_FISH14,
+    "s1mini_af":  _ENHANCE_SYSTEM_PROMPT_S1MINI,
+    "s1_af":      _ENHANCE_SYSTEM_PROMPT_S1,
+    "kokoro_af":  _ENHANCE_SYSTEM_PROMPT_KOKORO,
+    "tone":       _TONE_SYSTEM_PROMPT_TEMPLATE,
+    "translate":  (
+        "You are a professional translator. "
+        "Translate to {target_language}{tone_clause}. "
+        "Output ONLY the translation. "
+        "Keep tags like (laugh) or [whisper] exactly as-is."
+    ),
+}
+
+# Default snapshots for reset
+_PROMPTS_DEFAULTS: dict = dict(_PROMPTS)
+
+
+def get_prompt(key: str) -> str:
+    return _PROMPTS.get(key, "")
+
+def set_prompt(key: str, value: str) -> None:
+    _PROMPTS[key] = value
+
+def save_prompts() -> None:
+    """Persist current prompts to prompts.json."""
+    try:
+        with open(_PROMPTS_FILE, "w", encoding="utf-8") as f:
+            _json.dump(_PROMPTS, f, indent=2, ensure_ascii=False)
+    except Exception as exc:
+        logger.error("save_prompts failed: %s", exc)
+
+def load_prompts() -> None:
+    """Load custom prompts from prompts.json if it exists."""
+    if not os.path.isfile(_PROMPTS_FILE):
+        return
+    try:
+        with open(_PROMPTS_FILE, "r", encoding="utf-8") as f:
+            custom = _json.load(f)
+        for k, v in custom.items():
+            if k in _PROMPTS and isinstance(v, str):
+                _PROMPTS[k] = v
+    except Exception as exc:
+        logger.error("load_prompts failed: %s", exc)
+
+def reset_prompts() -> None:
+    """Reset all prompts to factory defaults and delete prompts.json."""
+    _PROMPTS.update(_PROMPTS_DEFAULTS)
+    try:
+        if os.path.isfile(_PROMPTS_FILE):
+            os.remove(_PROMPTS_FILE)
+    except Exception as exc:
+        logger.error("reset_prompts: could not delete %s: %s", _PROMPTS_FILE, exc)
+
+# Load any saved customisations at import time
+load_prompts()
+
 TONE_OPTIONS = [
     "Neutral",
     "Casual / Conversational",
@@ -571,28 +640,30 @@ TONE_OPTIONS = [
 def enhance_for_tts(
     text: str,
     engine: str = "fish14",
+    content_style: str = "None",
     on_progress: Optional[Callable[[str, float], None]] = None,
 ) -> str:
     """
     Use Qwen 0.5B to improve text for natural TTS delivery.
 
-    engine: "kokoro" — plain-text prompt (no tags).
-            "fish14" — Fish Speech 1.4 prompt (conservative tags).
-            "s1mini" — S1 Mini prompt (compact, clear, conservative tags).
-            "s1"     — S1 Full prompt (expressive, full tag guidance).
+    engine: "kokoro" | "fish14" | "s1mini" | "s1"
+    content_style: optional hint appended to the system prompt
+                   (e.g. "Podcast", "Story — Fiction", "Formal")
     """
     if not is_llm_available():
         raise RuntimeError("llama-cpp-python is not installed.")
     if not is_qwen_model_ready():
         raise RuntimeError(f"Qwen model not found at {QWEN_MODEL_PATH}.")
 
-    _prompt_map = {
-        "kokoro": _ENHANCE_SYSTEM_PROMPT_KOKORO,
-        "s1mini": _ENHANCE_SYSTEM_PROMPT_S1MINI,
-        "s1":     _ENHANCE_SYSTEM_PROMPT_S1,
-        "fish14": _ENHANCE_SYSTEM_PROMPT_FISH14,
+    _key_map = {
+        "kokoro": "kokoro_af",
+        "s1mini": "s1mini_af",
+        "s1":     "s1_af",
+        "fish14": "fish14_af",
     }
-    system_prompt = _prompt_map.get(engine, _ENHANCE_SYSTEM_PROMPT_FISH14)
+    system_prompt = _PROMPTS.get(_key_map.get(engine, "fish14_af"), _PROMPTS["fish14_af"])
+    if content_style and content_style not in ("None", ""):
+        system_prompt += f"\nContent style context: {content_style}. Keep formatting choices appropriate to this style."
 
     with _llm_lock:
         _load_llm()
@@ -649,15 +720,18 @@ TRANSLATE_LANGUAGES = [
 TRANSLATE_TONES = ["Natural", "Formal", "Casual", "Professional"]
 
 
-def translate_for_voice(text: str, target_language: str, tone: str = "Natural") -> str:
+def translate_for_voice(
+    text: str,
+    target_language: str,
+    tone: str = "Natural",
+    content_style: str = "None",
+) -> str:
     """
     Translate text into target_language using Qwen.
 
-    target_language is a plain English name like "Japanese", "Mandarin Chinese",
-    "French", etc.  If the text is already in target_language the model is
-    instructed to return it unchanged (so English→English is a safe no-op).
-
-    Returns the translated text, or the original on any failure.
+    target_language : plain name e.g. "Japanese", "Mandarin Chinese"
+    tone            : "Natural" | "Formal" | "Casual" | "Professional"
+    content_style   : optional genre hint ("Podcast", "Story — Fiction", …)
     """
     if not is_llm_available():
         logger.warning("translate_for_voice: llama-cpp-python not installed.")
@@ -667,12 +741,9 @@ def translate_for_voice(text: str, target_language: str, tone: str = "Natural") 
         return text
 
     _tone_clause = f" with a {tone.lower()} tone" if tone and tone != "Natural" else ""
-    system_prompt = (
-        f"You are a professional translator. "
-        f"Translate to {target_language}{_tone_clause}. "
-        f"Output ONLY the translation. "
-        f"Keep tags like (laugh) or [whisper] exactly as-is."
-    )
+    _style_clause = f" The text is {content_style} content — preserve its style." if content_style and content_style not in ("None", "") else ""
+    _tmpl = _PROMPTS.get("translate", _PROMPTS_DEFAULTS["translate"])
+    system_prompt = _tmpl.format(target_language=target_language, tone_clause=_tone_clause) + _style_clause
 
     with _llm_lock:
         _load_llm()
@@ -730,7 +801,7 @@ def rewrite_tone(
     if not is_qwen_model_ready():
         raise RuntimeError(f"Qwen model not found at {QWEN_MODEL_PATH}.")
 
-    system_prompt = _TONE_SYSTEM_PROMPT_TEMPLATE.format(tone=tone)
+    system_prompt = _PROMPTS.get("tone", _TONE_SYSTEM_PROMPT_TEMPLATE).format(tone=tone)
 
     with _llm_lock:
         _load_llm()
