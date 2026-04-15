@@ -51,6 +51,9 @@ bin/
 # Pip wheel/package cache
 packages/
 
+# Wiki
+wiki/
+
 # =============================================================================
 # Voice profiles — user-generated, keep folder structure via .gitkeep
 # =============================================================================
