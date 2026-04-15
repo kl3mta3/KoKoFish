@@ -74,9 +74,15 @@ class Settings:
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    
                 logger.info("Settings loaded from %s", path)
-                return cls(data)
+                instance = cls(data)
+                # If any keys from DEFAULTS are missing in the file (e.g. newly
+                # added settings), write them back so the file stays complete.
+                missing = [k for k in DEFAULTS if k not in data]
+                if missing:
+                    logger.info("Adding new settings keys to file: %s", missing)
+                    instance.save()
+                return instance
             except Exception as exc:
                 logger.warning("Failed to load settings: %s — using defaults", exc)
         return cls()

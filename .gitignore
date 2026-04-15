@@ -59,6 +59,9 @@ wiki/
 # Claude
 .claude/
 
+# KokoFish ExE Relay
+KokoFish_relay/
+
 # =============================================================================
 # Voice profiles — user-generated, keep folder structure via .gitkeep
 # =============================================================================
