@@ -718,7 +718,7 @@ class KoKoFishUI:
 
         self.stt_drop_label = ctk.CTkLabel(
             self.stt_drop,
-            text="🎧  Drag & drop .wav or .mp3 audio files here\nor click to browse",
+            text="🎧  Drag & drop audio files here  (.wav .mp3 .m4a .ogg .opus .weba .webm…)\nor click to browse",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_secondary"],
             justify="center",
@@ -3236,6 +3236,9 @@ class KoKoFishUI:
             self._script_profile["characters"] = chars
             self._script_profile["narrator"]["voice"] = narrator_voice_var.get()
 
+        def _cur_engine():
+            return getattr(self.settings, "engine", "kokoro")
+
         def _save_profile():
             _collect_profile()
             name = self._script_profile_name.get().strip()
@@ -3245,28 +3248,28 @@ class KoKoFishUI:
                 if not name:
                     return
                 self._script_profile_name.set(name)
-            save_profile(name, self._script_profile)
+            save_profile(name, self._script_profile, _cur_engine())
             _refresh_profile_menu()
             status_var.set(f"Profile '{name}' saved.")
 
         def _load_profile_by_name(name):
             if not name:
                 return
-            self._script_profile = load_profile(name)
+            self._script_profile = load_profile(name, _cur_engine())
             self._script_profile_name.set(name)
             narrator_voice_var.set(self._script_profile.get("narrator", {}).get("voice", ""))
             _refresh_char_list()
             status_var.set(f"Profile '{name}' loaded.")
 
         def _refresh_profile_menu():
-            profiles = list_profiles()
+            profiles = list_profiles(_cur_engine())
             profile_menu.configure(values=profiles if profiles else [""])
 
         def _delete_profile():
             name = self._script_profile_name.get().strip()
             if not name:
                 return
-            delete_profile(name)
+            delete_profile(name, _cur_engine())
             self._script_profile = default_profile()
             self._script_profile_name.set("")
             _refresh_char_list()
@@ -3301,7 +3304,7 @@ class KoKoFishUI:
             _refresh_char_list()
             status_var.set("New profile — add characters and save.")
 
-        profiles_now = list_profiles()
+        profiles_now = list_profiles(_cur_engine())
         profile_menu = ctk.CTkOptionMenu(
             prof_row,
             variable=self._script_profile_name,
@@ -3339,12 +3342,29 @@ class KoKoFishUI:
         ).pack(anchor="w", padx=12, pady=(8, 2))
 
         narrator_voice_var = tk.StringVar(value="")
-        ctk.CTkOptionMenu(
+        narrator_voice_menu = ctk.CTkOptionMenu(
             left, variable=narrator_voice_var,
             values=_get_voice_options(), width=260,
             fg_color=COLORS["bg_input"], text_color=COLORS["text_primary"],
             button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"],
-        ).pack(anchor="w", padx=12, pady=(0, 8))
+        )
+        narrator_voice_menu.pack(anchor="w", padx=12, pady=(0, 8))
+
+        def _refresh_voices_for_engine():
+            """Refresh narrator + all character voice dropdowns to match the active engine."""
+            voices = _get_voice_options()
+            narrator_voice_menu.configure(values=voices)
+            # Keep current selection if it's still valid, else clear
+            if narrator_voice_var.get() not in voices:
+                narrator_voice_var.set("")
+            _refresh_char_list()
+            _refresh_profile_menu()
+            self._script_profile_name.set("")
+            self._script_profile = default_profile()
+
+        # Expose so _on_tab_changed can call it when engine switches
+        self._script_refresh_voices = _refresh_voices_for_engine
+        self._script_last_engine    = _cur_engine()
 
         # Characters header
         ctk.CTkLabel(
@@ -3425,7 +3445,7 @@ class KoKoFishUI:
             try:
                 import soundfile as sf
                 combined = np.concatenate(self._script_audio_chunks)
-                sf.write(path, combined, 44100)
+                sf.write(path, combined, self._script_audio_sr)
                 status_var.set(f"Audio exported: {os.path.basename(path)}")
             except Exception as exc:
                 status_var.set(f"Export failed: {exc}")
@@ -3680,6 +3700,7 @@ class KoKoFishUI:
                                 if self._script_stop_flag:
                                     break
                                 sr = chunk_sr
+                                self._script_audio_sr = chunk_sr
                                 audio = _rms_normalize(audio)
                                 self._script_audio_chunks.append(audio)
                                 if live:
@@ -4681,16 +4702,26 @@ class KoKoFishUI:
                     font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"],
                 ).pack(side="left", padx=(0, 10), pady=12)
 
+                import sys as _sys
                 _fa_installed = is_flash_attn_installed()
+                _fa_win = _sys.platform == "win32"
+
+                if _fa_installed:
+                    _fa_text  = "✅  Installed"
+                    _fa_color = COLORS["success"]
+                elif _fa_win:
+                    _fa_text  = "⚠  Not available on Windows — generation still works"
+                    _fa_color = COLORS["text_muted"]
+                else:
+                    _fa_text  = "⚠  Not installed — generation will be slower"
+                    _fa_color = COLORS["warning"]
+
                 fa_status_lbl = ctk.CTkLabel(
-                    fa_row,
-                    text="✅  Installed" if _fa_installed else "⚠  Not installed — generation will be slower",
-                    font=(FONT_FAMILY, 11),
-                    text_color=COLORS["success"] if _fa_installed else COLORS["warning"],
+                    fa_row, text=_fa_text, font=(FONT_FAMILY, 11), text_color=_fa_color,
                 )
                 fa_status_lbl.pack(side="right", padx=15, pady=12)
 
-                if not _fa_installed:
+                if not _fa_installed and not _fa_win:
                     def _install_fa(lbl=fa_status_lbl):
                         lbl.configure(text="⏳  Installing…", text_color=COLORS["text_muted"])
                         def _done(ok, msg):
@@ -6912,7 +6943,7 @@ class KoKoFishUI:
         path = filedialog.askopenfilename(
             title="Select audio file",
             filetypes=[
-                ("Audio files", "*.wav *.mp3 *.m4a *.flac *.ogg"),
+                ("Audio files", "*.wav *.mp3 *.m4a *.flac *.ogg *.weba *.webm *.opus *.wma *.amr *.aac"),
                 ("All files", "*.*"),
             ],
         )
@@ -6922,7 +6953,7 @@ class KoKoFishUI:
     def _stt_set_file(self, path: str):
         """Set the audio file for transcription."""
         ext = os.path.splitext(path)[1].lower()
-        if ext not in (".wav", ".mp3", ".m4a", ".flac", ".ogg"):
+        if ext not in (".wav", ".mp3", ".m4a", ".flac", ".ogg", ".weba", ".webm", ".opus", ".wma", ".amr", ".aac"):
             messagebox.showwarning("KoKoFish", f"Unsupported audio format: {ext}")
             return
         self._stt_audio_path = path
@@ -7368,10 +7399,10 @@ class KoKoFishUI:
     def _voice_clone(self):
         """Open dialog to clone a new voice."""
         path = filedialog.askopenfilename(
-            title="Select reference audio (15–30 sec WAV)",
+            title="Select reference audio (15–30 sec, any format)",
             filetypes=[
-                ("WAV files", "*.wav"),
-                ("All audio", "*.wav *.mp3 *.flac"),
+                ("Audio files", "*.wav *.mp3 *.flac *.ogg *.m4a *.weba *.webm *.opus *.wma *.amr *.aac"),
+                ("All files", "*.*"),
             ],
         )
         if not path:
@@ -8067,6 +8098,16 @@ class KoKoFishUI:
                 self._chat_refresh_model_badge()
             except Exception:
                 pass
+
+        # Refresh Script Lab voices/profiles when engine has changed since last visit
+        if "Script Lab" in current:
+            cur_eng = getattr(self.settings, "engine", "kokoro")
+            if cur_eng != getattr(self, "_script_last_engine", None):
+                self._script_last_engine = cur_eng
+                try:
+                    self._script_refresh_voices()
+                except Exception:
+                    pass
 
         if not self.settings.memory_saver:
             return

@@ -226,21 +226,106 @@ def _model_files_ready() -> bool:
     return os.path.isfile(KOKORO_ONNX_PATH) and os.path.isfile(KOKORO_VOICES_PATH)
 
 
+def _get_pip() -> list:
+    """Return the pip command list for the venv (or system pip as fallback)."""
+    venv_pip = os.path.join(_APP_DIR, "venv", "Scripts", "pip.exe")
+    if os.path.isfile(venv_pip):
+        return [venv_pip]
+    return [sys.executable, "-m", "pip"]
+
+
+def _get_packages_dir() -> str:
+    return os.path.join(_APP_DIR, "packages")
+
+
+def switch_onnxruntime(
+    use_cuda: bool,
+    on_progress: Optional[Callable[[str], None]] = None,
+    on_complete: Optional[Callable[[bool, str], None]] = None,
+):
+    """
+    Swap onnxruntime ↔ onnxruntime-gpu in the venv without internet if
+    local wheels are present in the packages/ folder.
+
+    use_cuda=True  → uninstall onnxruntime,     install onnxruntime-gpu
+    use_cuda=False → uninstall onnxruntime-gpu, install onnxruntime
+
+    Keeps both wheels in packages/ so the swap can happen offline.
+    on_complete(ok: bool, message: str) is called when done.
+    """
+    install_pkg = "onnxruntime-gpu" if use_cuda else "onnxruntime"
+    remove_pkg  = "onnxruntime"     if use_cuda else "onnxruntime-gpu"
+
+    def _worker():
+        pip       = _get_pip()
+        pkg_dir   = _get_packages_dir()
+
+        # ── Step 1: uninstall the outgoing package ────────────────────────
+        if on_progress:
+            on_progress(f"Removing {remove_pkg}…")
+        subprocess.run(
+            pip + ["uninstall", remove_pkg, "-y"],
+            capture_output=True, creationflags=CREATE_NO_WINDOW,
+        )
+
+        # ── Step 2: install the target, local wheel first ─────────────────
+        if on_progress:
+            on_progress(f"Installing {install_pkg}…")
+
+        # Try local packages/ folder (no internet needed)
+        result = subprocess.run(
+            pip + ["install", install_pkg,
+                   "--find-links", pkg_dir, "--no-index", "--quiet"],
+            capture_output=True, creationflags=CREATE_NO_WINDOW,
+        )
+
+        if result.returncode != 0:
+            # Local wheel missing — download and cache it
+            if on_progress:
+                on_progress(f"Downloading {install_pkg} (one-time)…")
+            dl = subprocess.run(
+                pip + ["download", install_pkg, "-d", pkg_dir, "--quiet"],
+                capture_output=True, creationflags=CREATE_NO_WINDOW,
+            )
+            if dl.returncode == 0:
+                result = subprocess.run(
+                    pip + ["install", install_pkg,
+                           "--find-links", pkg_dir, "--no-index", "--quiet"],
+                    capture_output=True, creationflags=CREATE_NO_WINDOW,
+                )
+            else:
+                # Final fallback: straight PyPI install
+                result = subprocess.run(
+                    pip + ["install", install_pkg, "--quiet"],
+                    capture_output=True, creationflags=CREATE_NO_WINDOW,
+                )
+
+        ok  = result.returncode == 0
+        msg = (
+            f"Switched to {install_pkg}. Restart KoKoFish to apply."
+            if ok else
+            f"Could not install {install_pkg}:\n"
+            + (result.stderr.decode(errors="replace")[-400:] if result.stderr else "unknown error")
+        )
+        logger.info("switch_onnxruntime(use_cuda=%s): %s", use_cuda, msg)
+        if on_complete:
+            on_complete(ok, msg)
+
+    threading.Thread(target=_worker, daemon=True, name="OrtSwitch").start()
+
+
 def install_kokoro(
     on_progress: Optional[Callable[[str], None]] = None,
     on_complete: Optional[Callable[[bool, str], None]] = None,
 ):
     """Install kokoro-onnx in a background thread (fallback, rarely needed)."""
-    venv_pip = os.path.join(_APP_DIR, "venv", "Scripts", "pip.exe")
-    if not os.path.isfile(venv_pip):
-        venv_pip = f"{sys.executable} -m pip"
-
     def _worker():
+        pip = _get_pip()
         try:
             if on_progress:
                 on_progress("Installing Kokoro TTS…")
             result = subprocess.run(
-                [venv_pip, "install", "kokoro-onnx", "misaki[en]", "--upgrade", "--quiet"],
+                pip + ["install", "kokoro-onnx", "misaki[en]", "--upgrade", "--quiet"],
                 capture_output=True, text=True, timeout=600,
                 creationflags=CREATE_NO_WINDOW
             )
@@ -249,18 +334,6 @@ def install_kokoro(
                 if on_complete:
                     on_complete(False, f"Installation failed:\n{msg}")
                 return
-
-            # Install onnxruntime-gpu for CUDA acceleration (non-fatal if it fails)
-            if on_progress:
-                on_progress("Installing onnxruntime-gpu for GPU acceleration…")
-            try:
-                subprocess.run(
-                    [venv_pip, "install", "onnxruntime-gpu", "--upgrade", "--quiet"],
-                    capture_output=True, text=True, timeout=300,
-                    creationflags=CREATE_NO_WINDOW
-                )
-            except Exception as _ort_exc:
-                logger.warning("onnxruntime-gpu install failed (non-fatal): %s", _ort_exc)
 
             if on_complete:
                 on_complete(True, "Kokoro installed! Restart KoKoFish to use it.")

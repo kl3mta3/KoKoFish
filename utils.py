@@ -371,6 +371,20 @@ def install_flash_attn(
     on_progress(message, fraction) — optional progress callback
     on_complete(ok: bool, message: str) — called when done
     """
+    # flash-attn has no official Windows binary wheels on PyPI.
+    # Pre-built community wheels exist but only for specific CUDA/torch combos.
+    # We try the matched wheel URL; if it 404s we skip PyPI (it never has Windows binaries).
+    if sys.platform == "win32":
+        msg = (
+            "flash-attn has no official Windows binary.\n"
+            "S1/S1-Mini will still work — just without the 3-5x speed boost.\n"
+            "See: https://github.com/Dao-AILab/flash-attention/issues"
+        )
+        logger.warning("flash-attn: %s", msg)
+        if on_complete:
+            on_complete(False, msg)
+        return
+
     def _worker():
         app_dir  = os.path.dirname(os.path.abspath(__file__))
         venv_pip = os.path.join(app_dir, "venv", "Scripts", "pip.exe")
@@ -380,9 +394,9 @@ def install_flash_attn(
         wheel_url = _build_flash_attn_wheel_url()
         attempts = []
         if wheel_url:
-            attempts.append(("pre-built wheel", pip_cmd + ["install", wheel_url, "--quiet", "--progress-bar", "off"]))
-        # Always have a fallback
-        attempts.append(("PyPI", pip_cmd + ["install", "flash-attn", "--prefer-binary", "--quiet", "--progress-bar", "off"]))
+            attempts.append(("pre-built wheel", pip_cmd + ["install", wheel_url, "--progress-bar", "off"]))
+        # Always have a PyPI fallback
+        attempts.append(("PyPI", pip_cmd + ["install", "flash-attn", "--prefer-binary", "--progress-bar", "off"]))
 
         for label, cmd in attempts:
             if on_progress:
@@ -397,8 +411,9 @@ def install_flash_attn(
                     text=True,
                     creationflags=CREATE_NO_WINDOW,
                 )
+                output_lines = []
                 for line in proc.stdout:
-                    logger.debug("flash_attn pip: %s", line.rstrip())
+                    output_lines.append(line.rstrip())
                 proc.wait()
                 if proc.returncode == 0:
                     logger.info("flash-attn installed successfully via %s.", label)
@@ -407,6 +422,9 @@ def install_flash_attn(
                     if on_complete:
                         on_complete(True, f"flash-attn installed via {label}.")
                     return
+                # Log what pip actually said so we can diagnose failures
+                for line in output_lines:
+                    logger.warning("flash_attn pip: %s", line)
                 logger.warning("flash-attn install via %s failed (code %d).", label, proc.returncode)
             except Exception as exc:
                 logger.warning("flash-attn install via %s error: %s", label, exc)

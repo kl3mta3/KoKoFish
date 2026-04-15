@@ -21,23 +21,33 @@ APP_DIR = (
 PROFILES_DIR = os.path.join(APP_DIR, "scripts", "profiles")
 SCRIPTS_DIR  = os.path.join(APP_DIR, "scripts")
 
+# Engine name → subfolder mapping so profiles stay separated
+_ENGINE_FOLDER = {
+    "kokoro":  "kokoro",
+    "fish14":  "fish",
+    "s1":      "fish",
+    "s1mini":  "fish",
+}
+
 
 # ---------------------------------------------------------------------------
 # Profile management
 # ---------------------------------------------------------------------------
 
-def get_profiles_dir() -> str:
-    os.makedirs(PROFILES_DIR, exist_ok=True)
-    return PROFILES_DIR
+def get_profiles_dir(engine: str = "kokoro") -> str:
+    folder = _ENGINE_FOLDER.get(engine, engine) or "kokoro"
+    d = os.path.join(PROFILES_DIR, folder)
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
-def list_profiles() -> list:
-    d = get_profiles_dir()
+def list_profiles(engine: str = "kokoro") -> list:
+    d = get_profiles_dir(engine)
     return [f[:-5] for f in sorted(os.listdir(d)) if f.endswith(".json")]
 
 
-def load_profile(name: str) -> dict:
-    path = os.path.join(get_profiles_dir(), f"{name}.json")
+def load_profile(name: str, engine: str = "kokoro") -> dict:
+    path = os.path.join(get_profiles_dir(engine), f"{name}.json")
     if os.path.isfile(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -47,19 +57,19 @@ def load_profile(name: str) -> dict:
     return default_profile()
 
 
-def save_profile(name: str, profile: dict):
-    os.makedirs(get_profiles_dir(), exist_ok=True)
-    path = os.path.join(get_profiles_dir(), f"{name}.json")
+def save_profile(name: str, profile: dict, engine: str = "kokoro"):
+    d = get_profiles_dir(engine)
+    path = os.path.join(d, f"{name}.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(profile, f, indent=2, ensure_ascii=False)
-    logger.info("Profile saved: %s", name)
+    logger.info("Profile saved: %s (engine=%s)", name, engine)
 
 
-def delete_profile(name: str):
-    path = os.path.join(get_profiles_dir(), f"{name}.json")
+def delete_profile(name: str, engine: str = "kokoro"):
+    path = os.path.join(get_profiles_dir(engine), f"{name}.json")
     if os.path.isfile(path):
         os.remove(path)
-        logger.info("Profile deleted: %s", name)
+        logger.info("Profile deleted: %s (engine=%s)", name, engine)
 
 
 def default_profile() -> dict:
