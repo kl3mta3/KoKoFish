@@ -51,6 +51,7 @@ KoKoFish is a desktop Audiobook Studio built for Windows. Convert text, ebooks, 
 - Translation to any language
 - TTS enhancement — rewrites text for more natural spoken delivery
 - AI tag suggester — adds pacing and emotion tags for Fish-Speech and Kokoro
+- **Assisted Flow** — an optional per-item pipeline that automatically runs grammar → translation → TTS enhancement before each item plays, so your playlist just sounds right
 - All AI features run locally using a small on-device model (no cloud, no API keys)
 
 **Supported AI Models for Writing Tools**
@@ -72,7 +73,24 @@ KoKoFish is a desktop Audiobook Studio built for Windows. Convert text, ebooks, 
 
 ## Screenshots
 
-*(Screenshots coming soon)*
+<p align="center">
+  <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Speech_Lab.png" alt="Speech Lab" width="300"/>
+</p>
+<p align="center">
+  <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Voice_Lab.png" alt="Speech Lab" width="300"/>
+</p>
+<p align="center">
+  <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Text_Lab.png" alt="Speech Lab" width="300"/>
+</p>
+<p align="center">
+  <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/File_Lab.png" alt="Speech Lab" width="300"/>
+</p>
+<p align="center">
+  <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Listen_Lab.png" alt="Speech Lab" width="300"/>
+</p>
+<p align="center">
+  <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Prompt_Lab.png" alt="Speech Lab" width="300"/>
+</p>
 
 ---
 
