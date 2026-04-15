@@ -18,6 +18,7 @@ env/
 
 # User settings (machine-specific)
 settings.json
+llm_model.txt
 
 # Logs
 *.log

@@ -159,6 +159,21 @@ class KoKoFishUI:
         )
         subtitle.pack(side="left", padx=(12, 0), pady=(18, 10))
 
+        # Settings button — top right
+        self._settings_window = None
+        ctk.CTkButton(
+            header,
+            text="⚙  Settings",
+            width=110,
+            height=32,
+            font=(FONT_FAMILY, 12),
+            fg_color=COLORS["bg_input"],
+            hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_primary"],
+            corner_radius=8,
+            command=self._open_settings_window,
+        ).pack(side="right", pady=10)
+
         # Tab view
         self.tabview = ctk.CTkTabview(
             self.root,
@@ -179,8 +194,8 @@ class KoKoFishUI:
         self.tab_stt      = self.tabview.add("📝  Text Lab")
         self.tab_convert  = self.tabview.add("📁  File Lab")
         self.tab_listen   = self.tabview.add("🎧  Listen Lab")
+        self.tab_script   = self.tabview.add("🎭  Script Lab")
         self.tab_chat     = self.tabview.add("🤖  Prompt Lab")
-        self.tab_settings = self.tabview.add("⚙  Settings")
 
         # Listen Lab state
         self._listen_items: list = []          # {path, name, selected}
@@ -200,8 +215,8 @@ class KoKoFishUI:
         self._build_stt_tab()
         self._build_convert_tab()
         self._build_listen_lab_tab()
+        self._build_script_lab_tab()
         self._build_prompt_lab_tab()
-        self._build_settings_tab()
 
         # Lock Voice Lab tab when Kokoro engine is active
         if getattr(self.settings, 'engine', 'fish14') == 'kokoro':
@@ -3116,6 +3131,487 @@ class KoKoFishUI:
         self._rebuild_playlist_ui()
 
     # ==================================================================
+    # TAB: Script Lab
+    # ==================================================================
+
+    def _build_script_lab_tab(self):
+        import threading
+        from script_engine import (
+            default_profile, list_profiles, load_profile, save_profile,
+            delete_profile, parse_script, format_script,
+            read_source_file, tag_script_with_ai,
+        )
+
+        tab = self.tab_script
+
+        # ---- State -------------------------------------------------------
+        self._script_profile      = default_profile()
+        self._script_profile_name = tk.StringVar(value="")
+        self._script_playing      = False
+        self._script_stop_flag    = False
+        self._script_char_rows    = []   # list of {name_var, voice_var, frame}
+        self._script_audio_chunks = []   # accumulated audio for export
+
+        # ---- Helpers -----------------------------------------------------
+        def _get_voice_options():
+            engine = getattr(self.settings, "engine", "kokoro")
+            if engine == "kokoro":
+                try:
+                    from kokoro_engine import KOKORO_VOICES
+                    return [""] + list(KOKORO_VOICES.keys())
+                except Exception:
+                    return [""]
+            else:
+                try:
+                    from voice_manager import VoiceManager
+                    vm = VoiceManager(engine)
+                    return [""] + vm.list_voices()
+                except Exception:
+                    return [""]
+
+        def _voice_for_character(char_name: str):
+            if char_name == "Narrator":
+                return self._script_profile.get("narrator", {}).get("voice", "")
+            for ch in self._script_profile.get("characters", []):
+                if ch["name"] == char_name:
+                    return ch.get("voice", "")
+            return ""
+
+        def _refresh_char_list():
+            for row in self._script_char_rows:
+                row["frame"].destroy()
+            self._script_char_rows.clear()
+            voices = _get_voice_options()
+            for ch in self._script_profile.get("characters", []):
+                _add_char_row(ch["name"], ch.get("voice", ""), voices)
+
+        def _add_char_row(name="", voice="", voices=None):
+            if voices is None:
+                voices = _get_voice_options()
+            row_frame = ctk.CTkFrame(char_scroll, fg_color=COLORS["bg_input"], corner_radius=6)
+            row_frame.pack(fill="x", padx=4, pady=3)
+
+            name_var  = tk.StringVar(value=name)
+            voice_var = tk.StringVar(value=voice)
+
+            ctk.CTkEntry(
+                row_frame, textvariable=name_var, width=120,
+                fg_color=COLORS["bg_dark"], text_color=COLORS["text_primary"],
+                placeholder_text="Character name",
+            ).pack(side="left", padx=(6, 4), pady=6)
+
+            ctk.CTkOptionMenu(
+                row_frame, variable=voice_var, values=voices, width=160,
+                fg_color=COLORS["bg_dark"], text_color=COLORS["text_primary"],
+                button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"],
+            ).pack(side="left", padx=4, pady=6)
+
+            def _remove(rf=row_frame, nv=name_var):
+                self._script_profile["characters"] = [
+                    c for c in self._script_profile["characters"]
+                    if c["name"] != nv.get()
+                ]
+                rf.destroy()
+                self._script_char_rows = [r for r in self._script_char_rows if r["frame"].winfo_exists()]
+
+            ctk.CTkButton(
+                row_frame, text="✕", width=28, height=28,
+                fg_color=COLORS["bg_dark"], hover_color="#3a1a1a",
+                text_color=COLORS["text_secondary"], command=_remove,
+            ).pack(side="right", padx=6, pady=6)
+
+            entry = {"frame": row_frame, "name_var": name_var, "voice_var": voice_var}
+            self._script_char_rows.append(entry)
+
+        def _collect_profile():
+            chars = []
+            for row in self._script_char_rows:
+                if not row["frame"].winfo_exists():
+                    continue
+                n = row["name_var"].get().strip()
+                v = row["voice_var"].get()
+                if n:
+                    chars.append({"name": n, "voice": v, "blend_voice": "", "blend_ratio": 0.0})
+            self._script_profile["characters"] = chars
+            self._script_profile["narrator"]["voice"] = narrator_voice_var.get()
+
+        def _save_profile():
+            _collect_profile()
+            name = self._script_profile_name.get().strip()
+            if not name:
+                from tkinter import simpledialog
+                name = simpledialog.askstring("Save Profile", "Profile name:", parent=self.root)
+                if not name:
+                    return
+                self._script_profile_name.set(name)
+            save_profile(name, self._script_profile)
+            _refresh_profile_menu()
+            status_var.set(f"Profile '{name}' saved.")
+
+        def _load_profile_by_name(name):
+            if not name:
+                return
+            self._script_profile = load_profile(name)
+            self._script_profile_name.set(name)
+            narrator_voice_var.set(self._script_profile.get("narrator", {}).get("voice", ""))
+            _refresh_char_list()
+            status_var.set(f"Profile '{name}' loaded.")
+
+        def _refresh_profile_menu():
+            profiles = list_profiles()
+            profile_menu.configure(values=profiles if profiles else [""])
+
+        def _delete_profile():
+            name = self._script_profile_name.get().strip()
+            if not name:
+                return
+            delete_profile(name)
+            self._script_profile = default_profile()
+            self._script_profile_name.set("")
+            _refresh_char_list()
+            _refresh_profile_menu()
+            status_var.set("Profile deleted.")
+
+        # ---- Layout ------------------------------------------------------
+        outer = ctk.CTkFrame(tab, fg_color="transparent")
+        outer.pack(fill="both", expand=True, padx=8, pady=8)
+        outer.columnconfigure(0, weight=0, minsize=300)
+        outer.columnconfigure(1, weight=1)
+        outer.rowconfigure(0, weight=1)
+
+        # == LEFT: Character Profiles ======================================
+        left = ctk.CTkFrame(outer, fg_color=COLORS["bg_card"], corner_radius=10)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+
+        ctk.CTkLabel(
+            left, text="Character Profiles",
+            font=(FONT_FAMILY, 14, "bold"), text_color=COLORS["text_primary"],
+        ).pack(anchor="w", padx=12, pady=(12, 4))
+
+        # Profile selector row
+        prof_row = ctk.CTkFrame(left, fg_color="transparent")
+        prof_row.pack(fill="x", padx=8, pady=(0, 6))
+
+        profiles_now = list_profiles()
+        profile_menu = ctk.CTkOptionMenu(
+            prof_row,
+            variable=self._script_profile_name,
+            values=profiles_now if profiles_now else [""],
+            width=160,
+            fg_color=COLORS["bg_input"], text_color=COLORS["text_primary"],
+            button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"],
+            command=_load_profile_by_name,
+        )
+        profile_menu.pack(side="left", padx=(0, 4))
+
+        ctk.CTkButton(
+            prof_row, text="Save", width=52, height=30,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=_save_profile,
+        ).pack(side="left", padx=2)
+
+        ctk.CTkButton(
+            prof_row, text="Delete", width=58, height=30,
+            fg_color="#5a2020", hover_color="#7a3030",
+            command=_delete_profile,
+        ).pack(side="left", padx=2)
+
+        # Narrator voice
+        ctk.CTkLabel(
+            left, text="Narrator Voice",
+            font=(FONT_FAMILY, 12, "bold"), text_color=COLORS["text_secondary"],
+        ).pack(anchor="w", padx=12, pady=(8, 2))
+
+        narrator_voice_var = tk.StringVar(value="")
+        ctk.CTkOptionMenu(
+            left, variable=narrator_voice_var,
+            values=_get_voice_options(), width=260,
+            fg_color=COLORS["bg_input"], text_color=COLORS["text_primary"],
+            button_color=COLORS["accent"], button_hover_color=COLORS["accent_hover"],
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+
+        # Characters header
+        ctk.CTkLabel(
+            left, text="Characters",
+            font=(FONT_FAMILY, 12, "bold"), text_color=COLORS["text_secondary"],
+        ).pack(anchor="w", padx=12, pady=(4, 2))
+
+        char_scroll = ctk.CTkScrollableFrame(
+            left, fg_color="transparent",
+            scrollbar_button_color=COLORS["accent"],
+        )
+        char_scroll.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+
+        ctk.CTkButton(
+            left, text="+ Add Character", height=32,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_primary"],
+            command=lambda: _add_char_row(),
+        ).pack(fill="x", padx=12, pady=(4, 12))
+
+        # == RIGHT: Script Editor ==========================================
+        right = ctk.CTkFrame(outer, fg_color=COLORS["bg_card"], corner_radius=10)
+        right.grid(row=0, column=1, sticky="nsew")
+
+        # Toolbar
+        toolbar = ctk.CTkFrame(right, fg_color="transparent")
+        toolbar.pack(fill="x", padx=10, pady=(10, 4))
+
+        ctk.CTkLabel(
+            toolbar, text="Script Editor",
+            font=(FONT_FAMILY, 14, "bold"), text_color=COLORS["text_primary"],
+        ).pack(side="left")
+
+        # Toolbar buttons - right side
+        btn_cfg = dict(height=30, corner_radius=6, font=(FONT_FAMILY, 12))
+
+        def _export_audio():
+            if not self._script_audio_chunks:
+                status_var.set("No audio to export — play the script first.")
+                return
+            import numpy as np
+            from tkinter import filedialog
+            path = filedialog.asksaveasfilename(
+                defaultextension=".wav",
+                filetypes=[("WAV", "*.wav"), ("MP3", "*.mp3")],
+                title="Export Script Audio",
+            )
+            if not path:
+                return
+            try:
+                import soundfile as sf
+                combined = np.concatenate(self._script_audio_chunks)
+                sf.write(path, combined, 44100)
+                status_var.set(f"Audio exported: {os.path.basename(path)}")
+            except Exception as exc:
+                status_var.set(f"Export failed: {exc}")
+
+        def _export_script():
+            from tkinter import filedialog
+            text = script_text.get("1.0", "end").strip()
+            if not text:
+                status_var.set("Script is empty.")
+                return
+            path = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[("Text", "*.txt"), ("All files", "*.*")],
+                title="Export Script",
+            )
+            if not path:
+                return
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(text)
+                status_var.set(f"Script exported: {os.path.basename(path)}")
+            except Exception as exc:
+                status_var.set(f"Export failed: {exc}")
+
+        def _load_script_file():
+            from tkinter import filedialog
+            path = filedialog.askopenfilename(
+                filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+                title="Load Script File",
+            )
+            if not path:
+                return
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    script_text.delete("1.0", "end")
+                    script_text.insert("1.0", f.read())
+                status_var.set(f"Script loaded: {os.path.basename(path)}")
+            except Exception as exc:
+                status_var.set(f"Load failed: {exc}")
+
+        def _stop_playback():
+            self._script_stop_flag = True
+            self._script_playing = False
+            status_var.set("Stopped.")
+
+        def _play_script():
+            if self._script_playing:
+                return
+            _collect_profile()
+            text = script_text.get("1.0", "end").strip()
+            if not text:
+                status_var.set("Script is empty.")
+                return
+            segments = parse_script(text)
+            if not segments:
+                status_var.set("No segments found.")
+                return
+
+            self._script_playing   = True
+            self._script_stop_flag = False
+            self._script_audio_chunks = []
+            status_var.set("Playing...")
+
+            def _worker():
+                engine = getattr(self.settings, "engine", "kokoro")
+                try:
+                    for i, seg in enumerate(segments):
+                        if self._script_stop_flag:
+                            break
+                        char  = seg["character"]
+                        stext = seg["text"]
+                        voice = _voice_for_character(char)
+                        self.root.after(0, lambda c=char, t=stext: status_var.set(
+                            f"[{c}] {t[:60]}{'...' if len(t) > 60 else ''}"
+                        ))
+                        try:
+                            if engine == "kokoro":
+                                from kokoro_engine import KokoroEngine, VOICE_ID_FROM_NAME
+                                eng = KokoroEngine.get_instance()
+                                vid = VOICE_ID_FROM_NAME.get(voice, voice) if voice else "af_heart"
+                                for audio, sr in eng.synthesize_stream(stext, voice_id=vid):
+                                    if self._script_stop_flag:
+                                        break
+                                    self._script_audio_chunks.append(audio)
+                                    import sounddevice as sd
+                                    sd.play(audio, sr, blocking=True)
+                            else:
+                                from tts_engine import TTSEngine
+                                eng = TTSEngine(self.settings)
+                                chunks = list(eng.synthesize(stext, voice_name=voice))
+                                for audio, sr in chunks:
+                                    if self._script_stop_flag:
+                                        break
+                                    self._script_audio_chunks.append(audio)
+                                    import sounddevice as sd
+                                    sd.play(audio, sr, blocking=True)
+                        except Exception as exc:
+                            logger.warning("Script playback segment failed: %s", exc)
+                            self.root.after(0, lambda e=exc: status_var.set(f"Segment error: {e}"))
+                finally:
+                    self._script_playing = False
+                    self.root.after(0, lambda: status_var.set("Playback complete."))
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        ctk.CTkButton(
+            toolbar, text="▶  Play", width=80,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=_play_script, **btn_cfg,
+        ).pack(side="right", padx=3)
+
+        ctk.CTkButton(
+            toolbar, text="⏹  Stop", width=70,
+            fg_color="#5a2020", hover_color="#7a3030",
+            command=_stop_playback, **btn_cfg,
+        ).pack(side="right", padx=3)
+
+        ctk.CTkButton(
+            toolbar, text="Export Audio", width=100,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_primary"], command=_export_audio, **btn_cfg,
+        ).pack(side="right", padx=3)
+
+        ctk.CTkButton(
+            toolbar, text="Export Script", width=100,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_primary"], command=_export_script, **btn_cfg,
+        ).pack(side="right", padx=3)
+
+        ctk.CTkButton(
+            toolbar, text="Load Script", width=90,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_primary"], command=_load_script_file, **btn_cfg,
+        ).pack(side="right", padx=3)
+
+        # AI Tag section
+        ai_bar = ctk.CTkFrame(right, fg_color=COLORS["bg_input"], corner_radius=8)
+        ai_bar.pack(fill="x", padx=10, pady=(0, 6))
+
+        ctk.CTkLabel(
+            ai_bar, text="Tag with AI:",
+            font=(FONT_FAMILY, 12), text_color=COLORS["text_secondary"],
+        ).pack(side="left", padx=(10, 6), pady=6)
+
+        ai_file_var = tk.StringVar(value="Drop or browse a book/document...")
+        ctk.CTkLabel(
+            ai_bar, textvariable=ai_file_var,
+            font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
+            width=300, anchor="w",
+        ).pack(side="left", padx=4, pady=6)
+
+        self._ai_source_path = None
+
+        def _browse_source():
+            from tkinter import filedialog
+            path = filedialog.askopenfilename(
+                filetypes=[
+                    ("Supported files", "*.txt *.pdf *.docx *.epub"),
+                    ("All files", "*.*"),
+                ],
+                title="Select source document",
+            )
+            if path:
+                self._ai_source_path = path
+                ai_file_var.set(os.path.basename(path))
+
+        def _run_ai_tag():
+            if not self._ai_source_path:
+                status_var.set("Browse a source document first.")
+                return
+            _collect_profile()
+            char_names = [c["name"] for c in self._script_profile.get("characters", [])]
+            engine = getattr(self.settings, "engine", "kokoro")
+            status_var.set("Reading source file...")
+
+            def _worker():
+                try:
+                    source = read_source_file(self._ai_source_path)
+                    def _prog(msg, _frac):
+                        self.root.after(0, lambda m=msg: status_var.set(m))
+                    tagged = tag_script_with_ai(source, engine, char_names, on_progress=_prog)
+                    def _apply():
+                        script_text.delete("1.0", "end")
+                        script_text.insert("1.0", tagged)
+                        status_var.set("AI tagging complete.")
+                    self.root.after(0, _apply)
+                except Exception as exc:
+                    self.root.after(0, lambda e=exc: status_var.set(f"AI tag failed: {e}"))
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        ctk.CTkButton(
+            ai_bar, text="Browse", width=70, height=28,
+            fg_color=COLORS["bg_dark"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_primary"], command=_browse_source,
+        ).pack(side="left", padx=4, pady=6)
+
+        ctk.CTkButton(
+            ai_bar, text="Generate Script", width=120, height=28,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=_run_ai_tag,
+        ).pack(side="left", padx=4, pady=6)
+
+        ctk.CTkLabel(
+            ai_bar,
+            text="Engine-aware: Kokoro = plain tags  |  Fish-Speech = emotion tags",
+            font=(FONT_FAMILY, 10), text_color=COLORS["text_secondary"],
+        ).pack(side="right", padx=10, pady=6)
+
+        # Script text area
+        script_text = ctk.CTkTextbox(
+            right,
+            fg_color=COLORS["bg_input"],
+            text_color=COLORS["text_primary"],
+            font=(FONT_FAMILY, 13),
+            wrap="word",
+            corner_radius=8,
+            scrollbar_button_color=COLORS["accent"],
+        )
+        script_text.pack(fill="both", expand=True, padx=10, pady=(0, 6))
+
+        # Status bar
+        status_var = tk.StringVar(value="Ready. Add characters to a profile, then load or generate a script.")
+        ctk.CTkLabel(
+            right, textvariable=status_var,
+            font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
+            anchor="w",
+        ).pack(fill="x", padx=12, pady=(0, 8))
+
+    # ==================================================================
     # TAB: Prompt Lab
     # ==================================================================
 
@@ -3634,8 +4130,34 @@ class KoKoFishUI:
     # TAB 4: Settings
     # ==================================================================
 
-    def _build_settings_tab(self):
-        tab = self.tab_settings
+    def _open_settings_window(self):
+        """Open the Settings window, or bring it to front if already open."""
+        if self._settings_window is not None and self._settings_window.winfo_exists():
+            self._settings_window.lift()
+            self._settings_window.focus_force()
+            return
+
+        win = ctk.CTkToplevel(self.root)
+        win.title("KoKoFish — Settings")
+        win.geometry("780x820")
+        win.configure(fg_color=COLORS["bg_dark"])
+        win.resizable(True, True)
+
+        # Center over main window
+        self.root.update_idletasks()
+        rx = self.root.winfo_x() + (self.root.winfo_width() - 780) // 2
+        ry = self.root.winfo_y() + (self.root.winfo_height() - 820) // 2
+        win.geometry(f"+{rx}+{ry}")
+
+        self._settings_window = win
+        win.protocol("WM_DELETE_WINDOW", lambda: setattr(self, "_settings_window", None) or win.destroy())
+
+        self._build_settings_tab(win)
+
+    def _build_settings_tab(self, parent=None):
+        tab = parent if parent is not None else getattr(self, "tab_settings", None)
+        if tab is None:
+            return
 
         main = ctk.CTkScrollableFrame(
             tab,

@@ -108,15 +108,16 @@ LLM_MODELS: dict = {
     },
 }
 
-_LLM_SETTINGS_FILE = os.path.join(APP_DIR, "llm_model.txt")
+_SETTINGS_FILE = os.path.join(APP_DIR, "settings.json")
 
 
 def get_active_llm_key() -> str:
     """Return the currently selected LLM model key (display name)."""
     try:
-        if os.path.isfile(_LLM_SETTINGS_FILE):
-            with open(_LLM_SETTINGS_FILE, encoding="utf-8") as f:
-                key = f.read().strip()
+        if os.path.isfile(_SETTINGS_FILE):
+            with open(_SETTINGS_FILE, encoding="utf-8") as f:
+                data = _json.load(f)
+            key = data.get("llm_model", "")
             if key in LLM_MODELS:
                 return key
     except Exception:
@@ -129,8 +130,16 @@ def set_active_llm_key(key: str):
     global _llm
     if key not in LLM_MODELS:
         return
-    with open(_LLM_SETTINGS_FILE, "w", encoding="utf-8") as f:
-        f.write(key)
+    try:
+        data = {}
+        if os.path.isfile(_SETTINGS_FILE):
+            with open(_SETTINGS_FILE, encoding="utf-8") as f:
+                data = _json.load(f)
+        data["llm_model"] = key
+        with open(_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            _json.dump(data, f, indent=2)
+    except Exception as exc:
+        logger.warning("set_active_llm_key: could not save to settings.json: %s", exc)
     # Unload any currently-loaded model so the new one is loaded fresh
     with _llm_lock:
         if _llm is not None:

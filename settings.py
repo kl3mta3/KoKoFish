@@ -35,6 +35,8 @@ DEFAULTS = {
     "tts_chunk_length": 150,
     # CPU thread limit (0 = use all cores)
     "cpu_threads": 0,
+    # Active LLM model key (display name from LLM_MODELS in tag_suggester.py)
+    "llm_model": "",
 }
 
 
