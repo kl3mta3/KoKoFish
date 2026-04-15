@@ -25,6 +25,7 @@ logs/
 
 # Temp / generated audio files
 *.wav
+*.mp3
 
 # Compiled executables (distribute via releases, not source)
 *.exe
@@ -84,3 +85,4 @@ Thumbs.db
 desktop.ini
 *.gguf
 *.setup_complete
+*kokofish_error
