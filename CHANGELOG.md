@@ -34,79 +34,20 @@ All notable changes to KoKoFish are documented here.
 
 ---
 
-## [1.4.5] - 2026-04
+## [Pre-release Development History]
 
-### Added
-- Listen Lab — transcribe audio, translate, and re-read in a target language in one pipeline
-- File Lab — document format conversion (.txt, .pdf, .docx, .epub) and audio conversion (MP3, WAV, M4B, FLAC)
-- Audiobook Combiner — merge multiple WAV files into a single M4B/MP3 with chapter markers
-- S1 Mini and S1 Full engine support
-- CUDA toggle in Settings with automatic PyTorch CUDA install
+Prior to v1.4.6 the project was in active development without a formal changelog. Features built during that period include:
 
-### Changed
-- Tabs renamed to Labs (Speech Lab, Voice Lab, Text Lab, etc.)
-
----
-
-## [1.4.0] - 2026-03
-
-### Added
-- Translation support in Text Editor (12+ languages via local LLM)
-- Tone rewriting in Text Editor (9 tone options)
-- Assisted Flow pipeline — grammar → translation → TTS enhancement per playlist item
-- Qwen 2.5 0.5B as default local LLM for all AI features
-- Gemma 3 1B and 4B model options
-- Prompt Lab — direct chat with local LLM
-
-### Changed
-- AI tag generation now uses Qwen instead of rule-based system
-- TTS enhancement prompts are now engine-aware (different behavior for Kokoro vs Fish-Speech)
-
----
-
-## [1.3.0] - 2026-02
-
-### Added
-- AI tag generation and suggestion in Text Editor
-- Grammar check in Text Editor
-- TTS Enhancement (rewrite text for natural spoken delivery)
-- Voice blending for Kokoro (mix two preset voices at any ratio)
-- Per-playlist-item voice selection
-
----
-
-## [1.2.0] - 2026-01
-
-### Added
-- EPUB support — chapters extracted in spine order
-- Kokoro multilanguage voices (Japanese, Spanish, French, Hindi, Italian, Portuguese, Mandarin, Korean)
-- Text Editor with tag insertion for Fish-Speech emotion and effect tags
-- Silent mode — generate audio without playing it aloud
-- Save as MP3 or WAV
-
-### Fixed
-- Performance improvements for sentence-level streaming
-- Large file handling for long chapters
-
----
-
-## [1.1.0] - 2025-12
-
-### Added
-- Fish-Speech 1.5 engine support
-- Voice Lab — record or upload reference audio to create cloned voice profiles
+- Kokoro TTS with 54 preset voices across 10 languages
+- Fish-Speech 1.4, 1.5, S1 Mini, and S1 Full engine support
+- Voice cloning and Voice Lab
+- Voice blending (Kokoro)
 - Whisper speech-to-text (Text Lab)
-- Export transcription as .txt, .docx, or .pdf
-- Auto-download for Fish-Speech models on first engine selection
-
----
-
-## [1.0.0] - 2025-11
-
-### Initial Release
-- Kokoro TTS engine with 54 preset voices
-- Fish-Speech 1.4 TTS engine with voice cloning
-- Drag and drop .txt, .pdf, .docx files
-- Real-time sentence-by-sentence audio playback
-- Auto-setup launcher — installs Python, venv, and dependencies on first run
-- FFmpeg auto-download
+- File Lab with document and audio format conversion
+- Audiobook Combiner (multi-chapter M4B export)
+- Listen Lab with transcribe, translate, and re-read pipeline
+- Text Editor with AI grammar check, tone rewriting, TTS enhancement, and tag generation
+- Assisted Flow per-playlist-item AI preprocessing pipeline
+- Prompt Lab (local LLM chat)
+- CUDA toggle with automatic PyTorch install
+- Auto-setup launcher with Python detection and venv creation
