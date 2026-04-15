@@ -1,0 +1,39 @@
+{
+  "characters": [
+    {
+      "name": "Maren",
+      "voice": "🇺🇸 Heart (F)",
+      "blend_voice": "",
+      "blend_ratio": 0.0
+    },
+    {
+      "name": "Narrator",
+      "voice": "🇺🇸 Adam (M)",
+      "blend_voice": "",
+      "blend_ratio": 0.0
+    },
+    {
+      "name": "Orrath",
+      "voice": "🇺🇸 Eric (M)",
+      "blend_voice": "",
+      "blend_ratio": 0.0
+    },
+    {
+      "name": "Seel",
+      "voice": "🇺🇸 Sky (F)",
+      "blend_voice": "",
+      "blend_ratio": 0.0
+    },
+    {
+      "name": "Vehn",
+      "voice": "🇺🇸 River (F)",
+      "blend_voice": "",
+      "blend_ratio": 0.0
+    }
+  ],
+  "narrator": {
+    "voice": "🇺🇸 Adam (M)",
+    "blend_voice": "",
+    "blend_ratio": 0.0
+  }
+}

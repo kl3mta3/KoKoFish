@@ -3451,13 +3451,97 @@ class KoKoFishUI:
             except Exception as exc:
                 status_var.set(f"Load failed: {exc}")
 
-        def _stop_playback():
-            self._script_stop_flag = True
-            self._script_playing = False
-            status_var.set("Stopped.")
+        # ── State extras beyond what __init__ sets up ─────────────────
+        self._script_audio_sr      = 44100   # sample rate of generated audio
+        self._script_combined      = None    # numpy array — full rendered audio
+        self._script_pb_thread     = None    # playback thread
+        self._script_pb_stop       = threading.Event()
 
-        def _play_script():
-            if self._script_playing:
+        silent_var = tk.BooleanVar(value=False)  # False = play live; True = silent
+
+        # ── Button references (created below, used in state helpers) ───
+        _btn_refs = {}
+
+        def _set_state(state):
+            """Switch toolbar to idle / generating / ready / playing / paused."""
+            self._script_state = state
+            no_audio  = self._script_combined is None
+            idle      = state == "idle"
+            genning   = state == "generating"
+            ready     = state in ("ready", "playing", "paused")
+            playing   = state == "playing"
+
+            _btn_refs["generate"].configure(
+                text="▶  Generate",
+                state="disabled" if genning else "normal",
+                fg_color=COLORS["accent"] if not genning else COLORS["bg_input"],
+                hover_color=COLORS["accent_hover"] if not genning else COLORS["bg_input"],
+            )
+            _btn_refs["cancel"].configure(
+                state="normal" if genning else "disabled",
+                fg_color="#5a2020" if genning else COLORS["bg_card"],
+                text_color=COLORS["text_primary"] if genning else COLORS["text_secondary"],
+            )
+            _btn_refs["play_pause"].configure(
+                text="⏸  Pause" if playing else "▶  Play",
+                state="normal" if (ready and not genning) else "disabled",
+                fg_color=COLORS["accent"] if ready else COLORS["bg_card"],
+                text_color=COLORS["text_primary"] if ready else COLORS["text_secondary"],
+            )
+            _btn_refs["export_audio"].configure(
+                state="normal" if (ready and not no_audio) else "disabled",
+                fg_color=COLORS["bg_input"] if (ready and not no_audio) else COLORS["bg_card"],
+                text_color=COLORS["text_primary"] if (ready and not no_audio) else COLORS["text_secondary"],
+            )
+
+        def _cancel_generation():
+            self._script_stop_flag = True
+            self._script_pb_stop.set()
+            status_var.set("Cancelled.")
+            self.root.after(200, lambda: _set_state("idle"))
+
+        def _do_playback():
+            """Play the already-generated combined audio in a background thread."""
+            if self._script_combined is None:
+                return
+            import sounddevice as sd
+            self._script_pb_stop.clear()
+            _set_state("playing")
+
+            def _worker():
+                try:
+                    vol = script_vol_var.get() / 100.0
+                    sd.play(self._script_combined * vol, self._script_audio_sr)
+                    # Poll until done or stopped
+                    while sd.get_stream().active:
+                        if self._script_pb_stop.is_set():
+                            sd.stop()
+                            break
+                        threading.Event().wait(0.05)
+                except Exception as exc:
+                    logger.warning("Script playback error: %s", exc)
+                finally:
+                    self.root.after(0, lambda: _set_state("ready"))
+
+            self._script_pb_thread = threading.Thread(target=_worker, daemon=True)
+            self._script_pb_thread.start()
+
+        def _toggle_play_pause():
+            if self._script_state == "playing":
+                # Pause
+                self._script_pb_stop.set()
+                import sounddevice as sd
+                sd.stop()
+                _set_state("paused")
+            elif self._script_state == "paused":
+                # Resume — restart from beginning (full replay)
+                _do_playback()
+            else:
+                # First play
+                _do_playback()
+
+        def _generate_script():
+            if self._script_state == "generating":
                 return
             _collect_profile()
             text = script_text.get("1.0", "end").strip()
@@ -3466,85 +3550,160 @@ class KoKoFishUI:
                 return
             segments = parse_script(text)
             if not segments:
-                status_var.set("No segments found.")
+                status_var.set("No segments found — add [Character] tags first.")
                 return
 
-            self._script_playing   = True
             self._script_stop_flag = False
             self._script_audio_chunks = []
-            status_var.set("Playing...")
+            self._script_combined = None
+            _set_state("generating")
+            status_var.set("Generating audio…")
+            live = not silent_var.get()
 
             def _worker():
+                import numpy as np
                 engine = getattr(self.settings, "engine", "kokoro")
+                sr = 44100
                 try:
                     for i, seg in enumerate(segments):
                         if self._script_stop_flag:
                             break
                         char  = seg["character"]
                         stext = seg["text"]
+                        if not stext.strip():
+                            continue
                         voice = _voice_for_character(char)
-                        self.root.after(0, lambda c=char, t=stext: status_var.set(
-                            f"[{c}] {t[:60]}{'...' if len(t) > 60 else ''}"
+                        self.root.after(0, lambda c=char, i=i, n=len(segments): status_var.set(
+                            f"[{i+1}/{n}] Generating [{c}]…"
                         ))
                         try:
                             if engine == "kokoro":
                                 from kokoro_engine import KokoroEngine, VOICE_ID_FROM_NAME
                                 eng = KokoroEngine.get_instance()
+                                if not eng.is_loaded:
+                                    eng.load()
                                 vid = VOICE_ID_FROM_NAME.get(voice, voice) if voice else "af_heart"
-                                for audio, sr in eng.synthesize_stream(stext, voice_id=vid):
+                                for audio, chunk_sr in eng.synthesize_stream(stext, voice_id=vid):
                                     if self._script_stop_flag:
                                         break
+                                    sr = chunk_sr
                                     self._script_audio_chunks.append(audio)
-                                    import sounddevice as sd
-                                    sd.play(audio, sr, blocking=True)
+                                    if live:
+                                        import sounddevice as sd
+                                        vol = script_vol_var.get() / 100.0
+                                        sd.play(audio * vol, sr)
+                                        while sd.get_stream().active:
+                                            if self._script_stop_flag:
+                                                sd.stop()
+                                                break
+                                            threading.Event().wait(0.02)
                             else:
-                                from tts_engine import TTSEngine
-                                eng = TTSEngine(self.settings)
-                                chunks = list(eng.synthesize(stext, voice_name=voice))
-                                for audio, sr in chunks:
+                                # Use the already-loaded shared TTS engine
+                                if not self.tts.is_loaded:
+                                    self.root.after(0, lambda: status_var.set(
+                                        "TTS engine not loaded — open Speech Lab and load it first."
+                                    ))
+                                    return
+                                for audio, chunk_sr in self.tts.synthesize(stext, voice_name=voice):
                                     if self._script_stop_flag:
                                         break
+                                    sr = chunk_sr
                                     self._script_audio_chunks.append(audio)
-                                    import sounddevice as sd
-                                    sd.play(audio, sr, blocking=True)
+                                    if live:
+                                        import sounddevice as sd
+                                        vol = script_vol_var.get() / 100.0
+                                        sd.play(audio * vol, sr)
+                                        while sd.get_stream().active:
+                                            if self._script_stop_flag:
+                                                sd.stop()
+                                                break
+                                            threading.Event().wait(0.02)
                         except Exception as exc:
-                            logger.warning("Script playback segment failed: %s", exc)
-                            self.root.after(0, lambda e=exc: status_var.set(f"Segment error: {e}"))
-                finally:
-                    self._script_playing = False
-                    self.root.after(0, lambda: status_var.set("Playback complete."))
+                            logger.warning("Script segment [%s] failed: %s", char, exc)
+                            self.root.after(0, lambda e=str(exc): status_var.set(f"Segment error: {e}"))
+
+                    if self._script_audio_chunks and not self._script_stop_flag:
+                        self._script_combined = np.concatenate(self._script_audio_chunks)
+                        self._script_audio_sr = sr
+                        self.root.after(0, lambda: status_var.set(
+                            "Done! Click Play to listen or Export Audio to save."
+                        ))
+                        self.root.after(0, lambda: _set_state("ready"))
+                    else:
+                        self.root.after(0, lambda: status_var.set("Cancelled." if self._script_stop_flag else "No audio generated."))
+                        self.root.after(0, lambda: _set_state("idle"))
+                except Exception as exc:
+                    logger.error("Script generation failed: %s", exc)
+                    self.root.after(0, lambda e=str(exc): status_var.set(f"Generation failed: {e}"))
+                    self.root.after(0, lambda: _set_state("idle"))
 
             threading.Thread(target=_worker, daemon=True).start()
 
-        ctk.CTkButton(
-            toolbar, text="▶  Play", width=80,
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
-            command=_play_script, **btn_cfg,
-        ).pack(side="right", padx=3)
-
-        ctk.CTkButton(
-            toolbar, text="⏹  Stop", width=70,
-            fg_color="#5a2020", hover_color="#7a3030",
-            command=_stop_playback, **btn_cfg,
-        ).pack(side="right", padx=3)
-
-        ctk.CTkButton(
-            toolbar, text="Export Audio", width=100,
-            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
-            text_color=COLORS["text_primary"], command=_export_audio, **btn_cfg,
-        ).pack(side="right", padx=3)
-
-        ctk.CTkButton(
-            toolbar, text="Export Script", width=100,
-            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
-            text_color=COLORS["text_primary"], command=_export_script, **btn_cfg,
-        ).pack(side="right", padx=3)
-
+        # ── Toolbar buttons ────────────────────────────────────────────
         ctk.CTkButton(
             toolbar, text="Load Script", width=90,
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_primary"], command=_load_script_file, **btn_cfg,
         ).pack(side="right", padx=3)
+
+        ctk.CTkButton(
+            toolbar, text="Export Script", width=95,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_primary"], command=_export_script, **btn_cfg,
+        ).pack(side="right", padx=3)
+
+        _btn_refs["export_audio"] = ctk.CTkButton(
+            toolbar, text="Export Audio", width=95,
+            fg_color=COLORS["bg_card"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_secondary"], command=_export_audio,
+            state="disabled", **btn_cfg,
+        )
+        _btn_refs["export_audio"].pack(side="right", padx=3)
+
+        _btn_refs["play_pause"] = ctk.CTkButton(
+            toolbar, text="▶  Play", width=75,
+            fg_color=COLORS["bg_card"], hover_color=COLORS["accent_hover"],
+            text_color=COLORS["text_secondary"], command=_toggle_play_pause,
+            state="disabled", **btn_cfg,
+        )
+        _btn_refs["play_pause"].pack(side="right", padx=3)
+
+        _btn_refs["cancel"] = ctk.CTkButton(
+            toolbar, text="⏹  Cancel", width=80,
+            fg_color=COLORS["bg_card"], hover_color="#7a3030",
+            text_color=COLORS["text_secondary"], command=_cancel_generation,
+            state="disabled", **btn_cfg,
+        )
+        _btn_refs["cancel"].pack(side="right", padx=3)
+
+        _btn_refs["generate"] = ctk.CTkButton(
+            toolbar, text="▶  Generate", width=95,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=_generate_script, **btn_cfg,
+        )
+        _btn_refs["generate"].pack(side="right", padx=3)
+
+        ctk.CTkSwitch(
+            toolbar, text="Silent", variable=silent_var,
+            onvalue=True, offvalue=False,
+            font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
+            progress_color=COLORS["accent"],
+        ).pack(side="right", padx=(6, 2))
+
+        # Volume slider (Script Lab playback)
+        script_vol_var = tk.IntVar(value=self.settings.volume)
+        ctk.CTkLabel(
+            toolbar, text="Vol:",
+            font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
+        ).pack(side="left", padx=(10, 2))
+        ctk.CTkSlider(
+            toolbar, from_=0, to=100, number_of_steps=100,
+            variable=script_vol_var, width=90,
+            progress_color=COLORS["accent"], button_color=COLORS["accent"],
+        ).pack(side="left", padx=(0, 6))
+
+        # Initialise button states
+        _set_state("idle")
 
         # AI Tag section
         ai_bar = ctk.CTkFrame(right, fg_color=COLORS["bg_input"], corner_radius=8)
@@ -3664,6 +3823,60 @@ class KoKoFishUI:
 
         # Status bar
         status_var = tk.StringVar(value="Ready. Add characters to a profile, then load or generate a script.")
+
+        # Drag-and-drop into the script editor
+        def _on_script_drop(event):
+            raw = event.data.strip()
+            # tkinterdnd2 wraps paths with spaces in braces: {C:/my path/file.txt}
+            paths = []
+            if raw.startswith("{"):
+                import re as _re
+                paths = _re.findall(r'\{([^}]+)\}', raw)
+            if not paths:
+                paths = raw.split()
+            path = paths[0] if paths else ""
+            if not path or not os.path.isfile(path):
+                status_var.set("Drop a .txt, .pdf, .docx, .epub, or tagged .txt script file.")
+                return
+            ext = os.path.splitext(path)[1].lower()
+            if ext == ".txt":
+                # Load as plain text — may already be a tagged script
+                try:
+                    with open(path, "r", encoding="utf-8", errors="replace") as f:
+                        content = f.read()
+                    script_text.delete("1.0", "end")
+                    script_text.insert("1.0", content)
+                    status_var.set(f"Loaded: {os.path.basename(path)}")
+                except Exception as exc:
+                    status_var.set(f"Could not read file: {exc}")
+            elif ext in (".pdf", ".docx", ".epub"):
+                # Extract prose — user will then run AI tagging
+                status_var.set(f"Reading {os.path.basename(path)}…")
+                def _load(p=path):
+                    try:
+                        content = read_source_file(p)
+                        def _apply():
+                            script_text.delete("1.0", "end")
+                            script_text.insert("1.0", content)
+                            self._ai_source_path = p
+                            ai_file_var.set(os.path.basename(p))
+                            status_var.set(
+                                f"Loaded {os.path.basename(p)} as plain text. "
+                                "Click Generate Script to tag it."
+                            )
+                        self.root.after(0, _apply)
+                    except Exception as exc:
+                        self.root.after(0, lambda e=exc: status_var.set(f"Could not read file: {e}"))
+                threading.Thread(target=_load, daemon=True).start()
+            else:
+                status_var.set("Unsupported file type. Drop .txt, .pdf, .docx, or .epub.")
+
+        try:
+            from tkinterdnd2 import DND_FILES
+            script_text.drop_target_register(DND_FILES)
+            script_text.dnd_bind("<<Drop>>", _on_script_drop)
+        except Exception as _dnd_err:
+            logger.warning("Script Lab drag-and-drop unavailable: %s", _dnd_err)
         ctk.CTkLabel(
             right, textvariable=status_var,
             font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
@@ -6661,10 +6874,7 @@ class KoKoFishUI:
                 self.root.after(0, self._stt_run_transcription)
                 self.root.after(
                     0,
-                    lambda: self.stt_status_label.configure(
-                        text="✅  Loaded",
-                        text_color=COLORS["success"],
-                    )
+                    lambda: self.update_stt_status("✅  Loaded", COLORS["success"])
                 )
 
             def on_error(exc):
@@ -7070,10 +7280,7 @@ class KoKoFishUI:
         # Force model reload on next transcription
         if self.stt.is_loaded:
             self.stt.unload_model()
-            self.stt_status_label.configure(
-                text="⏳  Model changed — will reload on next use",
-                text_color=COLORS["warning"],
-            )
+            self.update_stt_status("⏳  Model changed — will reload on next use", COLORS["warning"])
 
     # ==================================================================
     # EVENT HANDLERS — Voice Lab
@@ -7789,18 +7996,12 @@ class KoKoFishUI:
             # On TTS tab — unload STT, load TTS
             if self.stt.is_loaded:
                 self.stt.unload_model()
-                self.stt_status_label.configure(
-                    text="💤  Unloaded (Memory Saver)",
-                    text_color=COLORS["text_muted"],
-                )
+                self.update_stt_status("💤  Unloaded (Memory Saver)", COLORS["text_muted"])
         elif "Transcribe" in current:
             # On STT tab — unload TTS, keep STT
             if self.tts.is_loaded:
                 self.tts.unload_model()
-                self.tts_status_label.configure(
-                    text="💤  Unloaded (Memory Saver)",
-                    text_color=COLORS["text_muted"],
-                )
+                self.update_tts_status("💤  Unloaded (Memory Saver)", COLORS["text_muted"])
 
     # ==================================================================
     # RAM monitoring
@@ -7812,29 +8013,31 @@ class KoKoFishUI:
 
     def _update_ram(self):
         """Update RAM and VRAM readout labels."""
-        try:
-            ram = get_ram_usage()
-            text = (
-                f"App: {ram['process_mb']:.0f} MB  |  "
-                f"System: {ram['system_used_gb']:.1f} / "
-                f"{ram['system_total_gb']:.1f} GB ({ram['system_percent']:.0f}%)"
-            )
-            self.ram_label.configure(text=text)
-        except Exception:
-            self.ram_label.configure(text="Unable to read")
-
-        try:
-            vram = get_vram_usage()
-            if vram:
+        if hasattr(self, "ram_label"):
+            try:
+                ram = get_ram_usage()
                 text = (
-                    f"System: {vram['used_gb']:.1f} / "
-                    f"{vram['total_gb']:.1f} GB ({vram['percent']:.0f}%)"
+                    f"App: {ram['process_mb']:.0f} MB  |  "
+                    f"System: {ram['system_used_gb']:.1f} / "
+                    f"{ram['system_total_gb']:.1f} GB ({ram['system_percent']:.0f}%)"
                 )
-                self.vram_label.configure(text=text)
-            else:
-                self.vram_label.configure(text="N/A (No CUDA GPU)")
-        except Exception:
-            self.vram_label.configure(text="Unable to read")
+                self.ram_label.configure(text=text)
+            except Exception:
+                self.ram_label.configure(text="Unable to read")
+
+        if hasattr(self, "vram_label"):
+            try:
+                vram = get_vram_usage()
+                if vram:
+                    text = (
+                        f"System: {vram['used_gb']:.1f} / "
+                        f"{vram['total_gb']:.1f} GB ({vram['percent']:.0f}%)"
+                    )
+                    self.vram_label.configure(text=text)
+                else:
+                    self.vram_label.configure(text="N/A (No CUDA GPU)")
+            except Exception:
+                self.vram_label.configure(text="Unable to read")
 
         try:
             cpu = get_cpu_usage()
@@ -7878,15 +8081,17 @@ class KoKoFishUI:
         return [p for p in paths if os.path.isfile(p)]
 
     def update_tts_status(self, text: str, color: str = None):
-        """Update TTS engine status label in Settings tab."""
-        self.tts_status_label.configure(
-            text=text,
-            text_color=color or COLORS["text_secondary"],
-        )
+        """Update TTS engine status label in Settings tab (only if open)."""
+        if hasattr(self, "tts_status_label"):
+            self.tts_status_label.configure(
+                text=text,
+                text_color=color or COLORS["text_secondary"],
+            )
 
     def update_stt_status(self, text: str, color: str = None):
-        """Update STT engine status label in Settings tab."""
-        self.stt_status_label.configure(
-            text=text,
-            text_color=color or COLORS["text_secondary"],
-        )
+        """Update STT engine status label in Settings tab (only if open)."""
+        if hasattr(self, "stt_status_label"):
+            self.stt_status_label.configure(
+                text=text,
+                text_color=color or COLORS["text_secondary"],
+            )
