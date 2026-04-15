@@ -77,3 +77,4 @@ Thumbs.db
 .DS_Store
 desktop.ini
 *.gguf
+*.setup_complete
