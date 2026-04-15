@@ -76,7 +76,7 @@ class InstallerGUI(tk.Tk):
         ).pack(pady=(40, 5))
         
         tk.Label(
-            self, text="TTS/STT Studio", font=("Segoe UI", 12),
+            self, text="Audiobook Studio", font=("Segoe UI", 12),
             bg="#0f0f1a", fg="#9a9ab0"
         ).pack(pady=(0, 20))
         
@@ -90,6 +90,17 @@ class InstallerGUI(tk.Tk):
     def update_status(self, text):
         self.status_var.set(text)
         self.update()
+
+    def _spawn_and_linger(self):
+        """Spawn main.py then keep this splash visible while it loads."""
+        env = os.environ.copy()
+        env.pop("TCL_LIBRARY", None)
+        env.pop("TK_LIBRARY", None)
+        flags = 0x00000008 | 0x00000200 if sys.platform == "win32" else 0
+        main_script = os.path.join(APP_DIR, "main.py")
+        subprocess.Popen([PYTHON_EXE, main_script], cwd=APP_DIR, env=env, creationflags=flags)
+        self.update_status("Loading models… KoKoFish will appear shortly.")
+        self.after(15000, self.destroy)
         
     def run_setup(self):
         """Run the offline installation process."""
@@ -98,18 +109,22 @@ class InstallerGUI(tk.Tk):
         import tempfile
         
         def _find_valid_python():
-            candidates = [shutil.which("python")]
+            # Prefer Python 3.12 exactly — bundled torch wheels are cp312
+            candidates = []
             local_app = os.environ.get("LOCALAPPDATA", "")
-            for v in ["312", "311", "313"]:
+            for v in ["312", "313", "311"]:  # 312 first
                 p = os.path.join(local_app, "Programs", "Python", f"Python{v}", "python.exe")
                 if os.path.exists(p):
                     candidates.append(p)
-                    
+            sys_py = shutil.which("python")
+            if sys_py:
+                candidates.append(sys_py)
+
             for calc in candidates:
                 if not calc or not os.path.exists(calc): continue
                 try:
                     out = subprocess.run(
-                        [calc, "-c", "import sys; print(sys.version_info >= (3, 11))"],
+                        [calc, "-c", "import sys; print(sys.version_info[:2] == (3, 12))"],
                         capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW
                     )
                     if "True" in out.stdout:
@@ -124,13 +139,13 @@ class InstallerGUI(tk.Tk):
         
         if not system_python:
             wants_install = messagebox.askyesno(
-                "Python Required", 
-                "KoKoFish requires Python (v3.11+) which was not found on your system.\n\n"
-                "Would you like KoKoFish to smoothly download and install Python 3.11 for you right now?\n"
+                "Python Required",
+                "KoKoFish requires Python 3.12 which was not found on your system.\n\n"
+                "Would you like KoKoFish to download and install Python 3.12 for you right now?\n"
                 "(It installs cleanly to your local user folder without requiring Admin privileges)"
             )
             if not wants_install:
-                messagebox.showerror("Setup Failed", "Python 3.11+ is required to execute the Fish-Speech offline engine natively.")
+                messagebox.showerror("Setup Failed", "Python 3.12 is required. Please install it from python.org and try again.")
                 self.destroy()
                 return
 
@@ -139,9 +154,9 @@ class InstallerGUI(tk.Tk):
                 nonlocal system_python
                 
                 if wants_install:
-                    self.update_status("Downloading Python 3.11... (This may take a minute)")
-                    installer_url = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
-                    installer_path = os.path.join(tempfile.gettempdir(), "python-3.11.9-amd64-kokofish.exe")
+                    self.update_status("Downloading Python 3.12... (This may take a minute)")
+                    installer_url = "https://www.python.org/ftp/python/3.12.9/python-3.12.9-amd64.exe"
+                    installer_path = os.path.join(tempfile.gettempdir(), "python-3.12.9-amd64-kokofish.exe")
                     
                     try:
                         urllib.request.urlretrieve(installer_url, installer_path)
@@ -159,30 +174,56 @@ class InstallerGUI(tk.Tk):
                     
                 # 1. Create VENV
                 if not os.path.exists(VENV_DIR):
-                    self.update_status(f"Creating virtual environment (1/3)...")
-                    subprocess.run([system_python, "-m", "venv", VENV_DIR], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                
-                # 2. PyTorch Install (Offline)
-                self.update_status("Installing PyTorch Core (2/3)...")
-                subprocess.run([
-                    PIP_EXE, "install", "--no-index", "--find-links", PACKAGES_DIR,
-                    "torch", "torchaudio"
-                ], check=False, creationflags=subprocess.CREATE_NO_WINDOW)
-                
-                # 3. Dependencies Install (Offline)
-                self.update_status("Installing application components (3/3)...")
+                    self.update_status("Creating virtual environment (1/4)...")
+                    subprocess.run(
+                        [system_python, "-m", "venv", VENV_DIR],
+                        check=True, creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
+
+                # 2. Upgrade pip inside the venv first
+                self.update_status("Upgrading pip (2/4)...")
+                subprocess.run(
+                    [PIP_EXE, "install", "--quiet", "--upgrade", "pip"],
+                    check=False, creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+
+                # 3. PyTorch CPU — try local wheels first, fall back to official CPU index
+                self.update_status("Installing PyTorch CPU (3/4)  —  this may take a few minutes...")
+                torch_local = subprocess.run(
+                    [PIP_EXE, "install", "--find-links", PACKAGES_DIR, "--quiet",
+                     "torch", "torchaudio"],
+                    check=False, creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+                if torch_local.returncode != 0:
+                    self.update_status("Downloading PyTorch CPU from pytorch.org (3/4)...")
+                    subprocess.run(
+                        [PIP_EXE, "install", "--quiet",
+                         "torch", "torchaudio",
+                         "--index-url", "https://download.pytorch.org/whl/cpu"],
+                        check=False, creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
+
+                # 4. All other dependencies — local wheels first, PyPI fallback
+                self.update_status("Installing application components (4/4)...")
                 req_file = os.path.join(APP_DIR, "requirements.txt")
-                subprocess.run([
-                    PIP_EXE, "install", "--no-index", "--find-links", PACKAGES_DIR,
-                    "-r", req_file
-                ], check=False, creationflags=subprocess.CREATE_NO_WINDOW)
-                
-                # Done
+                result = subprocess.run(
+                    [PIP_EXE, "install", "--find-links", PACKAGES_DIR, "--quiet",
+                     "-r", req_file],
+                    check=False, creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+
+                if result.returncode != 0:
+                    raise Exception(
+                        "Package installation failed.\n"
+                        "Check your internet connection and try again."
+                    )
+
+                # Mark setup complete only after a successful install
                 with open(SETUP_MARKER, "w") as f:
                     f.write("setup_complete")
-                
+
                 self.update_status("Setup complete! Starting KoKoFish...")
-                self.after(1000, launch_main_app)
+                self.after(1000, self._spawn_and_linger)
                 
             except Exception as e:
                 self.update_status("Installation Error!")

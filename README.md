@@ -1,4 +1,4 @@
-# KoKoFish
+# KoKoFish — Audiobook Studio
 
 <p align="center">
   <img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/icon.png" alt="KoKoFish Icon" width="300"/>
@@ -6,94 +6,105 @@
 
 <h1 align="center">KoKoFish</h1>
 
-KoKoFish is a desktop text-to-speech application built for Windows. It supports multiple AI engines, voice cloning, real-time audio playback, and speech-to-text transcription. It is designed to work entirely offline once the models are downloaded.
+KoKoFish is a desktop Audiobook Studio built for Windows. Convert text, ebooks, and documents into spoken audio using multiple AI voices — then play them back, export to MP3/WAV, or transcribe audio back to text. Designed for writers, ebook lovers, and anyone who wants to hear their content read aloud. Works entirely offline once models are downloaded.
 
 ---
 
 ## Features
 
-**Text to Speech**
+**Read Aloud (TTS)**
 
 - Drag and drop .txt, .pdf, .docx, and .epub files into a playlist
 - Real-time sentence-by-sentence audio playback as text is generated
 - Adjustable speed, volume, and cadence controls
-- Work Silent mode to generate audio files without playing them aloud
-- Save output as MP3 or WAV via a standard save dialog
+- Silent mode — generate audio files without playing them aloud
+- Save output as MP3 or WAV
 
 **Multiple AI Engines**
 
-- Fish-Speech 1.4 -- smaller model, good for quick generation with voice cloning
-- Fish-Speech 1.5 -- higher quality output with voice cloning support
-- Kokoro Fast CPU -- 82M parameter ONNX model optimized for real-time CPU inference with 54 built-in preset voices
+- Kokoro — 82M parameter ONNX model, fast CPU inference, 54 built-in preset voices across multiple languages
+- Fish-Speech 1.4 — compact model with voice cloning support
+- Fish-Speech 1.5 — higher quality output with voice cloning support
 
 **Voice Cloning (Fish-Speech only)**
 
-- Record or upload a 15-180 second reference audio clip, Longer audio will be trimmed to 180 seconds
-- Voice profiles are stored per engine so 1.4 and 1.5 voice libraries stay separate
+- Record or upload a 15–180 second reference audio clip
+- Voice profiles are stored per engine so 1.4 and 1.5 libraries stay separate
 - Pre-computes VQ tokens for faster inference at playback time
 
 **Voice Lab**
 
 - Create, rename, and delete voice profiles
-- Reference audio is automatically trimmed to 180 seconds to prevent out-of-memory errors
-- Voice Lab is automatically disabled when the Kokoro engine is active
+- Reference audio is automatically trimmed to 180 seconds
+- Disabled automatically when Kokoro engine is active
 
-**Speech to Text**
+**Speech to Text (STT)**
 
 - Transcribe audio files using Whisper
 - Supports .wav, .mp3, .m4a, .flac, and .ogg
 - Export transcription as .txt, .docx, or .pdf
 
+**AI Writing Tools (powered by local LLM)**
+
+- Grammar check and correction
+- Tone rewriting (Casual, Formal, Dramatic, and more)
+- Translation to any language
+- TTS enhancement — rewrites text for more natural spoken delivery
+- AI tag suggester — adds pacing and emotion tags for Fish-Speech and Kokoro
+- All AI features run locally using a small on-device model (no cloud, no API keys)
+
+**Supported AI Models for Writing Tools**
+
+- Qwen 2.5 0.5B (default, ~400 MB) — fastest, lowest memory
+- Gemma 3 1B (~700 MB)
+- Gemma 3 1B Heretic Abliterated (~900 MB)
+- Gemma 3 4B Abliterated (~2.5 GB)
+- Ollama models (e.g. huihui_ai/gemma-4-abliterated:e2b) — requires Ollama installed
+
 **File Format Support**
 
-- .txt -- plain text with soft line-wrap handling
-- .pdf -- text extraction via pdfplumber
-- .docx -- Microsoft Word documents
-- .epub -- ebook format, chapters extracted in spine order
+- .txt — plain text
+- .pdf — text extraction via pdfplumber
+- .docx — Microsoft Word documents
+- .epub — ebook format, chapters extracted in spine order
 
 ---
 
 ## Screenshots
 
-![Read Aloud (TTS)](https://github.com/kl3mta3/KoKoFish/blob/main/Images/Read%20Aloud.png)
-![Transcribe (STT)](https://github.com/kl3mta3/KoKoFish/blob/main/Images/Transcribe.png)
-![Voice Lab (Cloning)](https://github.com/kl3mta3/KoKoFish/blob/main/Images/Voice%20Lab.png)
-![Settings](https://github.com/kl3mta3/SphereSSL/blob/main/Images/Settings.png)
+*(Screenshots coming soon)*
 
 ---
 
 ## Requirements
 
 - Windows 10 or later
-- Python 3.11 or later. (Will install if not found.)
-- FFmpeg (Will install if not found.)
-- Fish-Speech repository (Will install if not found.) cloned into the project directory for Fish-Speech engines
-- NVIDIA GPU with CUDA support is optional but improves Fish-Speech generation speed significantly
+- Python 3.12 — automatically installed by the launcher if not found
+- FFmpeg — automatically downloaded on first run
+- NVIDIA GPU with CUDA is optional but significantly speeds up Fish-Speech engines
 
 ---
 
-## Setup
+## Installation
 
-#Easy Install:
-1. Download and extract FiahTalk-Lite
-2. Run KoKoFish.exe.  This will when needed install dependencies. 
+### Easy Install (Lite)
+1. Download and extract **KoKoFish-Lite**
+2. Run `KoKoFish.exe`
+3. The launcher checks for Python 3.12, installs it if missing, then sets up the app
+4. Kokoro and Qwen models download automatically on first run (~700 MB total)
 
-```
-(Kokoro on first run and Fish Speech when you switch to them the first time.) 
-```
-
-#Offline Install:
-1. Download and extract KoKoFish-Kokoro_Only
-2. Download and extract Model-fish-speech-1.4 inside the KoKoFish folder
-3. Download and extract Model-fish-speech-1.5 inside the KoKoFish folder
-4. Run KoKoFish.exe. It will still install Python from the included installer
+### Full Offline Install
+1. Download and extract **KoKoFish-Full**
+2. Run `KoKoFish.exe`
+3. Python 3.12 is still required (launcher installs it if missing) — everything else is already included
 
 ```
-(If you miss any of these and have an internet connection it will grab them when you switch to them the first time.)
+The Full release includes PyTorch CPU wheels, Kokoro model, Qwen 0.5B model, and FFmpeg.
+Fish-Speech models download automatically the first time you switch to those engines.
 ```
 
-#Advanced Install:
-1. Clone this repository:
+### Advanced / Developer Install
+1. Clone the repository:
 
 ```
 git clone https://github.com/kl3mta3/KoKoFish.git
@@ -114,35 +125,31 @@ pip install -r requirements.txt
 python main.py
 ```
 
-On first launch the app will automatically download anything that is missing:
+On first launch the app will automatically download anything missing:
 
-- FFmpeg (~75 MB, one-time)
-- Kokoro model files (~115 MB, one-time)
-- Fish-Speech v1.4.3 source code (~20 MB, one-time)
-- Fish-Speech 1.4 model checkpoints (~1.5 GB, one-time)
-- Fish-Speech 1.5 model checkpoints (~1.5 GB, one-time)
-
-All downloads show progress on the startup screen. Subsequent launches are instant. If you are distributing the app as a zip, include the fish-speech/ and bin/ folders to skip these downloads entirely.
-
-
+- FFmpeg (~100 MB, one-time)
+- Kokoro model files (~300 MB, one-time)
+- Qwen 0.5B model (~400 MB, one-time)
+- Fish-Speech 1.4 source + checkpoints (~1.5 GB, one-time, only if you use that engine)
+- Fish-Speech 1.5 source + checkpoints (~1.5 GB, one-time, only if you use that engine)
 
 ---
 
 ## Switching Engines
 
-Select an engine from the Settings tab. The application will save the selection and prompt for a restart. Each engine has its own voice library:
+Select an engine from the Settings tab. The app saves your selection and restarts automatically. Each engine has its own voice library:
 
-- Fish-Speech 1.4 voices are stored in voices/fish14/
-- Fish-Speech 1.5 voices are stored in voices/fish15/
-- Kokoro uses built-in preset voices and does not use the voice library
+- Fish-Speech 1.4 voices are stored in `voices/fish14/`
+- Fish-Speech 1.5 voices are stored in `voices/fish15/`
+- Kokoro uses built-in preset voices — no voice library needed
 
 ---
 
 ## CUDA Support
 
-CUDA is optional and only applies to the Fish-Speech engines. Enabling it requires a compatible NVIDIA GPU and will prompt an automatic installation of the CUDA-enabled PyTorch build.
+CUDA is optional and only applies to Fish-Speech engines. Enabling it requires a compatible NVIDIA GPU and will trigger an automatic installation of the CUDA-enabled PyTorch build.
 
-To enable CUDA, go to Settings and toggle the CUDA option. The application will restart and use GPU acceleration for all Fish-Speech inference.
+To enable CUDA, go to Settings and toggle the CUDA option. The app will restart and use GPU acceleration for Fish-Speech inference.
 
 ---
 
@@ -150,34 +157,35 @@ To enable CUDA, go to Settings and toggle the CUDA option. The application will 
 
 ```
 KoKoFish/
-  main.py              -- application entry point and startup logic
+  launcher.py          -- auto-setup and launch entry point
+  main.py              -- application startup and splash screen
   ui.py                -- main window, tabs, and event handlers
   tts_engine.py        -- Fish-Speech TTS engine wrapper
   kokoro_engine.py     -- Kokoro ONNX engine with sentence-level streaming
   stt_engine.py        -- Whisper speech-to-text engine
+  tag_suggester.py     -- AI writing tools (grammar, tone, translate, tags)
   voice_manager.py     -- voice profile creation and management
   settings.py          -- persistent settings backed by settings.json
   utils.py             -- file readers, audio export, FFmpeg utilities
+  bin/                 -- bundled ffmpeg.exe
+  models/              -- downloaded LLM and Kokoro model files
   voices/
     fish14/            -- voice profiles for Fish-Speech 1.4
     fish15/            -- voice profiles for Fish-Speech 1.5
-  kokoro_models/
-    kokoro-v1.0.int8.onnx
-    voices-v1.0.bin
-  fish-speech/         -- Fish-Speech repository (user-provided)
-  bin/                 -- optional location for ffmpeg.exe
+  fish-speech/         -- Fish-Speech repository (downloaded on first use)
+  packages/            -- pre-downloaded Python wheels (Full release only)
 ```
 
 ---
 
 ## Acknowledgments
 
-- Fish-Speech by fishaudio (https://github.com/fishaudio/fish-speech)
-- Kokoro TTS by hexgrad (https://github.com/hexgrad/kokoro)
-- kokoro-onnx by thewh1teagle (https://github.com/thewh1teagle/kokoro-onnx)
-- Whisper by OpenAI (https://github.com/openai/whisper)
-- pdfplumber (https://github.com/jsvine/pdfplumber)
-- ebooklib (https://github.com/aerkalov/ebooklib)
+- [Fish-Speech](https://github.com/fishaudio/fish-speech) by fishaudio
+- [Kokoro TTS](https://github.com/hexgrad/kokoro) by hexgrad
+- [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx) by thewh1teagle
+- [Whisper](https://github.com/openai/whisper) by OpenAI
+- [pdfplumber](https://github.com/jsvine/pdfplumber)
+- [ebooklib](https://github.com/aerkalov/ebooklib)
 
 ---
 

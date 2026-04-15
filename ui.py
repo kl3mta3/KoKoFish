@@ -153,7 +153,7 @@ class KoKoFishUI:
 
         subtitle = ctk.CTkLabel(
             header,
-            text="TTS/STT Studio",
+            text="Audiobook Studio",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_secondary"],
         )
@@ -4125,18 +4125,32 @@ class KoKoFishUI:
 
         def _on_llm_change(key):
             _set_llm_key(key)
+            _is_ollama_key = key in _LLM_MODELS and _LLM_MODELS[key].get("backend") == "ollama"
+            # Update the llama-cpp status row to reflect the backend in use
+            if _is_ollama_key:
+                self.llama_status_label.configure(
+                    text="ℹ  Not needed (Ollama model)",
+                    text_color=COLORS["text_muted"],
+                )
+            else:
+                self.llama_status_label.configure(
+                    text="✅  Installed" if _llama_installed else "❌  Not installed",
+                    text_color=COLORS["success"] if _llama_installed else COLORS["danger"],
+                )
             # Pass the key directly so we check the new model's file,
             # not whatever get_active_llm_key() happens to return right now.
             _qw_installed = _qwen_ready(key)
+            _not_ready_label = "❌  Not pulled" if _is_ollama_key else "❌  Not downloaded"
             self.qwen_status_label.configure(
-                text="✅  Ready" if _qw_installed else "❌  Not downloaded",
+                text="✅  Ready" if _qw_installed else _not_ready_label,
                 text_color=COLORS["success"] if _qw_installed else COLORS["danger"],
             )
-            # If model not present, offer to download immediately
-            if not _qw_installed and _llama_installed:
+            # If model not present, offer to download / pull immediately
+            if not _qw_installed and (_llama_installed or _is_ollama_key):
+                _action = "pull" if _is_ollama_key else "download"
                 if messagebox.askyesno(
-                    "Model Not Downloaded",
-                    f"'{key}' has not been downloaded yet.\n\nDownload it now?",
+                    "Model Not Available",
+                    f"'{key}' has not been {_action}ed yet.\n\nDo it now?",
                     parent=self.root,
                 ):
                     self._download_qwen_from_settings()

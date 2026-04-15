@@ -48,15 +48,15 @@ LLM_MODELS: dict = {
         "chat_format": "chatml",
     },
     "Gemma 3 1B (~700 MB)": {
-        "filename":    "gemma-3-1b-it-q4_k_m.gguf",
-        "hf_repo":     "bartowski/gemma-3-1b-it-GGUF",
+        "filename":    "gemma-3-1b-it-Q4_K_M.gguf",
+        "hf_repo":     "lmstudio-community/gemma-3-1b-it-GGUF",
         "hf_file":     "gemma-3-1b-it-Q4_K_M.gguf",
         "n_ctx":       4096,
         "chat_format": "gemma",
     },
     "Gemma 3 4B (~2.5 GB)": {
-        "filename":    "gemma-3-4b-it-q4_k_m.gguf",
-        "hf_repo":     "bartowski/gemma-3-4b-it-GGUF",
+        "filename":    "gemma-3-4b-it-Q4_K_M.gguf",
+        "hf_repo":     "lmstudio-community/gemma-3-4b-it-GGUF",
         "hf_file":     "gemma-3-4b-it-Q4_K_M.gguf",
         "n_ctx":       4096,
         "chat_format": "gemma",
@@ -83,6 +83,28 @@ LLM_MODELS: dict = {
         "hf_file":     "Qwen2.5-1.5B-Instruct-abliterated.Q4_K_M.gguf",
         "n_ctx":       4096,
         "chat_format": "chatml",
+    },
+    "Gemma 3 1B Heretic Abliterated (~900 MB)": {
+        "filename":    "gemma-3-1b-it-heretic-extreme-uncensored-abliterated.i1-Q4_K_M.gguf",
+        "hf_repo":     "mradermacher/gemma-3-1b-it-heretic-extreme-uncensored-abliterated-i1-GGUF",
+        "hf_file":     "gemma-3-1b-it-heretic-extreme-uncensored-abliterated.i1-Q4_K_M.gguf",
+        "n_ctx":       4096,
+        "chat_format": "gemma",
+    },
+    "Gemma 3 4B Abliterated (~2.5 GB)": {
+        "filename":    "mlabonne_gemma-3-4b-it-abliterated-Q4_K_M.gguf",
+        "hf_repo":     "bartowski/mlabonne_gemma-3-4b-it-abliterated-GGUF",
+        "hf_file":     "mlabonne_gemma-3-4b-it-abliterated-Q4_K_M.gguf",
+        "n_ctx":       4096,
+        "chat_format": "gemma",
+    },
+    # ── Ollama models — run via local Ollama service, no llama-cpp needed ────
+    # Requires Ollama installed: https://ollama.com — model pulled on first use.
+    "Gemma 4 Abliterated E2B (Ollama)": {
+        "backend":      "ollama",
+        "ollama_model": "huihui_ai/gemma-4-abliterated:e2b",
+        "filename":     "",   # no local GGUF file
+        "n_ctx":        8192,
     },
 }
 
@@ -268,7 +290,9 @@ def is_llm_on_gpu() -> bool:
 
 
 def is_llm_available() -> bool:
-    """Return True if llama-cpp-python is installed."""
+    """Return True if the required LLM runtime is available for the active model."""
+    if _active_is_ollama():
+        return is_ollama_installed()
     try:
         import llama_cpp  # noqa
         return True
@@ -337,11 +361,13 @@ def install_llama_cpp(
 
 
 def is_qwen_model_ready(key: str = None) -> bool:
-    """Return True if the model file for *key* (or the active model) exists on disk."""
+    """Return True if the model for *key* (or the active model) is ready to use."""
     if key is not None and key in LLM_MODELS:
         cfg = LLM_MODELS[key]
     else:
         cfg = get_active_model_cfg()
+    if cfg.get("backend") == "ollama":
+        return is_ollama_model_pulled(cfg["ollama_model"])
     path = os.path.join(MODELS_DIR, cfg["filename"])
     return os.path.isfile(path)
 
@@ -350,7 +376,11 @@ def download_qwen_model(
     on_progress: Optional[Callable[[str, float], None]] = None,
     on_complete: Optional[Callable[[bool, str], None]] = None,
 ):
-    """Download the currently selected LLM model GGUF from HuggingFace in a background thread."""
+    """Download / pull the currently selected LLM model in a background thread."""
+    cfg = get_active_model_cfg()
+    if cfg.get("backend") == "ollama":
+        pull_ollama_model(cfg["ollama_model"], on_progress=on_progress, on_complete=on_complete)
+        return
 
     cfg      = get_active_model_cfg()
     filename = cfg["filename"]
@@ -376,7 +406,6 @@ def download_qwen_model(
                 repo_id=hf_repo,
                 filename=hf_file,
                 local_dir=MODELS_DIR,
-                local_dir_use_symlinks=False,
             )
 
             # hf_hub_download may nest inside a subfolder — move to flat MODELS_DIR
@@ -398,6 +427,183 @@ def download_qwen_model(
                 on_complete(False, str(exc))
 
     threading.Thread(target=_worker, daemon=True, name="LLMDownload").start()
+
+
+# ---------------------------------------------------------------------------
+# Ollama backend helpers
+# ---------------------------------------------------------------------------
+
+def _active_is_ollama(key: str = None) -> bool:
+    """Return True if the active (or given) LLM key uses the Ollama backend."""
+    if key is not None and key in LLM_MODELS:
+        cfg = LLM_MODELS[key]
+    else:
+        cfg = get_active_model_cfg()
+    return cfg.get("backend") == "ollama"
+
+
+def is_ollama_installed() -> bool:
+    """Return True if the ollama CLI is on PATH."""
+    import shutil as _shutil
+    return _shutil.which("ollama") is not None
+
+
+def is_ollama_model_pulled(model_tag: str) -> bool:
+    """Return True if *model_tag* is present in the local Ollama library."""
+    try:
+        result = subprocess.run(
+            ["ollama", "list"],
+            capture_output=True, text=True,
+            creationflags=CREATE_NO_WINDOW, timeout=10,
+        )
+        # Match both the full tag ("user/name:tag") and the short name ("name:tag")
+        short = model_tag.split("/")[-1]
+        return model_tag in result.stdout or short in result.stdout
+    except Exception:
+        return False
+
+
+def pull_ollama_model(
+    model_tag: str,
+    on_progress: Optional[Callable[[str, float], None]] = None,
+    on_complete: Optional[Callable[[bool, str], None]] = None,
+):
+    """Pull an Ollama model via `ollama pull` in a background thread."""
+    def _worker():
+        try:
+            if on_progress:
+                on_progress(f"Pulling {model_tag} via Ollama…", 0.05)
+            logger.info("Pulling Ollama model: %s", model_tag)
+            proc = subprocess.Popen(
+                ["ollama", "pull", model_tag],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                creationflags=CREATE_NO_WINDOW,
+            )
+            for line in proc.stdout:
+                line = line.strip()
+                if line and on_progress:
+                    on_progress(line[:120], 0.1)
+            proc.wait()
+            if proc.returncode == 0:
+                logger.info("Ollama model pulled: %s", model_tag)
+                if on_complete:
+                    on_complete(True, f"{model_tag} ready.")
+            else:
+                if on_complete:
+                    on_complete(False, f"ollama pull exited with code {proc.returncode}")
+        except FileNotFoundError:
+            msg = "Ollama not found — install it from https://ollama.com"
+            logger.error(msg)
+            if on_complete:
+                on_complete(False, msg)
+        except Exception as exc:
+            logger.error("Ollama pull failed: %s", exc)
+            if on_complete:
+                on_complete(False, str(exc))
+
+    threading.Thread(target=_worker, daemon=True, name="OllamaPull").start()
+
+
+def _ollama_infer(
+    system_prompt: str,
+    user_text: str,
+    max_tokens: int = 512,
+    temperature: float = 0.2,
+    top_p: float = 0.9,
+) -> str:
+    """Single-shot inference via the local Ollama HTTP API (no streaming)."""
+    import json as _j
+    import urllib.request as _ur
+    cfg = get_active_model_cfg()
+    payload = _j.dumps({
+        "model": cfg["ollama_model"],
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_text},
+        ],
+        "stream": False,
+        "options": {"num_predict": max_tokens, "temperature": temperature, "top_p": top_p},
+    }).encode()
+    req = _ur.Request(
+        "http://localhost:11434/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with _ur.urlopen(req, timeout=120) as resp:
+        result = _j.loads(resp.read())
+    return result["message"]["content"].strip()
+
+
+def _ollama_chat_stream(
+    messages: list,
+    system_prompt: str,
+    max_tokens: int = 512,
+    temperature: float = 0.75,
+    on_token=None,
+) -> str:
+    """Streaming chat via the local Ollama HTTP API."""
+    import json as _j
+    import urllib.request as _ur
+    cfg = get_active_model_cfg()
+    full_messages = [{"role": "system", "content": system_prompt}] + messages
+    payload = _j.dumps({
+        "model": cfg["ollama_model"],
+        "messages": full_messages,
+        "stream": True,
+        "options": {"num_predict": max_tokens, "temperature": temperature},
+    }).encode()
+    req = _ur.Request(
+        "http://localhost:11434/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    result = ""
+    with _ur.urlopen(req, timeout=120) as resp:
+        for raw in resp:
+            try:
+                chunk = _j.loads(raw)
+                delta = chunk.get("message", {}).get("content", "")
+                if delta:
+                    result += delta
+                    if on_token:
+                        on_token(delta)
+                if chunk.get("done"):
+                    break
+            except Exception:
+                continue
+    return result
+
+
+def _infer_chunk(
+    system_prompt: str,
+    user_text: str,
+    max_tokens: int = 512,
+    temperature: float = 0.2,
+    top_p: float = 0.9,
+    repeat_penalty: float = 1.1,
+) -> str:
+    """
+    Single-chunk inference — routes to Ollama HTTP API or llama-cpp GGUF
+    depending on the active model's backend.
+    """
+    if _active_is_ollama():
+        return _ollama_infer(system_prompt, user_text, max_tokens, temperature, top_p)
+    with _llm_lock:
+        output = _llm.create_chat_completion(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_text},
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            repeat_penalty=repeat_penalty,
+        )
+    return output["choices"][0]["message"]["content"].strip()
 
 
 def _load_llm():
@@ -506,10 +712,16 @@ def chat_with_llm(
     Returns the full assistant reply as a string.
     """
     if not is_llm_available():
-        raise RuntimeError("llama-cpp-python not installed — open Settings to install it.")
+        raise RuntimeError("LLM runtime not available — open Settings to install/configure it.")
     if not is_qwen_model_ready():
-        raise RuntimeError("LLM model not downloaded — open Settings → Download Model.")
+        raise RuntimeError("LLM model not ready — open Settings → Download Model.")
 
+    # ── Ollama backend ────────────────────────────────────────────────────────
+    if _active_is_ollama():
+        return _ollama_chat_stream(messages, system_prompt, max_tokens,
+                                   temperature=0.75, on_token=on_token)
+
+    # ── GGUF / llama-cpp backend ──────────────────────────────────────────────
     with _llm_lock:
         _load_llm()
 
@@ -584,17 +796,18 @@ def generate_tags(
     """
     if not is_llm_available():
         raise RuntimeError(
-            "llama-cpp-python is not installed.\n"
-            "Install it with: pip install llama-cpp-python"
+            "LLM runtime not available.\n"
+            "Install llama-cpp-python or Ollama in Settings."
         )
     if not is_qwen_model_ready():
         raise RuntimeError(
-            f"Qwen model not found at {QWEN_MODEL_PATH}.\n"
+            "LLM model not ready.\n"
             "Use the 'Download AI Tagger' button to fetch it."
         )
 
-    with _llm_lock:
-        _load_llm()
+    if not _active_is_ollama():
+        with _llm_lock:
+            _load_llm()
 
     # Split into manageable paragraphs (~500 chars each to stay in context)
     paragraphs = [p.strip() for p in re.split(r'\n{2,}', text) if p.strip()]
@@ -613,18 +826,13 @@ def generate_tags(
         chunks = _chunk_text(para, max_chars=600)
         para_result = []
         for chunk in chunks:
-            with _llm_lock:
-                output = _llm.create_chat_completion(
-                    messages=[
-                        {"role": "system", "content": _PROMPTS.get("tag_gen", _SYSTEM_PROMPT)},
-                        {"role": "user", "content": chunk},
-                    ],
-                    # ~4 chars per token; tags add ~50% overhead; cap at 600
-                    max_tokens=min(600, int(len(chunk) / 4 * 2) + 64),
-                    temperature=0.2,
-                    top_p=0.9,
-                )
-            tagged_chunk = output["choices"][0]["message"]["content"].strip()
+            tagged_chunk = _infer_chunk(
+                _PROMPTS.get("tag_gen", _SYSTEM_PROMPT),
+                chunk,
+                max_tokens=min(600, int(len(chunk) / 4 * 2) + 64),
+                temperature=0.2,
+                top_p=0.9,
+            )
             # Sanity check: result shouldn't be much longer than input
             # (if model added prose, fall back to the original)
             if len(tagged_chunk) > len(chunk) * 2.5:
@@ -654,17 +862,18 @@ def grammar_check(
     """
     if not is_llm_available():
         raise RuntimeError(
-            "llama-cpp-python is not installed.\n"
-            "Install it via the Generate Tags (AI) button."
+            "LLM runtime not available.\n"
+            "Install llama-cpp-python or Ollama in Settings."
         )
     if not is_qwen_model_ready():
         raise RuntimeError(
-            f"Qwen model not found at {QWEN_MODEL_PATH}.\n"
+            "LLM model not ready.\n"
             "Use the Generate Tags (AI) button to download it."
         )
 
-    with _llm_lock:
-        _load_llm()
+    if not _active_is_ollama():
+        with _llm_lock:
+            _load_llm()
 
     paragraphs = [p.strip() for p in re.split(r'\n{2,}', text) if p.strip()]
     if not paragraphs:
@@ -681,18 +890,13 @@ def grammar_check(
         chunks = _chunk_text(para, max_chars=600)
         para_result = []
         for chunk in chunks:
-            with _llm_lock:
-                output = _llm.create_chat_completion(
-                    messages=[
-                        {"role": "system", "content": _PROMPTS.get("grammar", _GRAMMAR_SYSTEM_PROMPT)},
-                        {"role": "user",   "content": chunk},
-                    ],
-                    # ~4 chars per token; grammar output ≈ input length; cap at 500
-                    max_tokens=min(500, int(len(chunk) / 4 * 1.5) + 64),
-                    temperature=0.1,   # lower = more conservative corrections
-                    top_p=0.9,
-                )
-            result = output["choices"][0]["message"]["content"].strip()
+            result = _infer_chunk(
+                _PROMPTS.get("grammar", _GRAMMAR_SYSTEM_PROMPT),
+                chunk,
+                max_tokens=min(500, int(len(chunk) / 4 * 1.5) + 64),
+                temperature=0.1,
+                top_p=0.9,
+            )
             # Sanity check: if model went off the rails, keep original chunk
             if len(result) > len(chunk) * 2.5 or len(result) < len(chunk) * 0.5:
                 logger.warning("Grammar LLM output suspicious length — keeping original chunk.")
@@ -888,9 +1092,9 @@ def enhance_for_tts(
                    (e.g. "Podcast", "Story — Fiction", "Formal")
     """
     if not is_llm_available():
-        raise RuntimeError("llama-cpp-python is not installed.")
+        raise RuntimeError("LLM runtime not available.")
     if not is_qwen_model_ready():
-        raise RuntimeError(f"Qwen model not found at {QWEN_MODEL_PATH}.")
+        raise RuntimeError("LLM model not ready.")
 
     _key_map = {
         "kokoro": "kokoro_af",
@@ -902,8 +1106,9 @@ def enhance_for_tts(
     if content_style and content_style not in ("None", ""):
         system_prompt += f"\nContent style context: {content_style}. Keep formatting choices appropriate to this style."
 
-    with _llm_lock:
-        _load_llm()
+    if not _active_is_ollama():
+        with _llm_lock:
+            _load_llm()
 
     paragraphs = [p.strip() for p in re.split(r'\n{2,}', text) if p.strip()]
     if not paragraphs:
@@ -917,18 +1122,12 @@ def enhance_for_tts(
         chunks = _chunk_text(para, max_chars=600)
         para_result = []
         for chunk in chunks:
-            with _llm_lock:
-                output = _llm.create_chat_completion(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user",   "content": chunk},
-                    ],
-                    # ~4 chars per token; Assisted Flow output ≈ input + TTS tags; cap at 700
-                    max_tokens=min(700, int(len(chunk) / 4 * 2) + 100),
-                    temperature=0.3,
-                    top_p=0.9,
-                )
-            result = output["choices"][0]["message"]["content"].strip()
+            result = _infer_chunk(
+                system_prompt, chunk,
+                max_tokens=min(700, int(len(chunk) / 4 * 2) + 100),
+                temperature=0.3,
+                top_p=0.9,
+            )
             if len(result) > len(chunk) * 2.5 or len(result) < len(chunk) * 0.4:
                 logger.warning("enhance_for_tts: suspicious output length — keeping original.")
                 result = chunk
@@ -972,10 +1171,10 @@ def translate_for_voice(
     content_style   : optional genre hint ("Podcast", "Story — Fiction", …)
     """
     if not is_llm_available():
-        logger.warning("translate_for_voice: llama-cpp-python not installed.")
+        logger.warning("translate_for_voice: LLM runtime not available.")
         return text
     if not is_qwen_model_ready():
-        logger.warning("translate_for_voice: Qwen model not found.")
+        logger.warning("translate_for_voice: LLM model not ready.")
         return text
 
     _tone_clause = f" with a {tone.lower()} tone" if tone and tone != "Natural" else ""
@@ -983,8 +1182,9 @@ def translate_for_voice(
     _tmpl = _PROMPTS.get("translate", _PROMPTS_DEFAULTS["translate"])
     system_prompt = _tmpl.format(target_language=target_language, tone_clause=_tone_clause) + _style_clause
 
-    with _llm_lock:
-        _load_llm()
+    if not _active_is_ollama():
+        with _llm_lock:
+            _load_llm()
 
     # Process paragraph by paragraph so large documents don't blow the context.
     paragraphs = [p.strip() for p in re.split(r'\n{2,}', text) if p.strip()]
@@ -999,23 +1199,14 @@ def translate_for_voice(
         para_result = []
         for chunk in chunks:
             try:
-                with _llm_lock:
-                    # Translation output ≈ same length as input in tokens.
-                    # ~4 chars per token, ×2 expansion headroom, capped at 600.
-                    # The old formula (len*3 + 256) produced 1000+ tokens for a
-                    # short paragraph, causing multi-minute waits on a 0.5B model.
-                    _max_tok = min(600, int(len(chunk) / 4 * 2) + 100)
-                    output = _llm.create_chat_completion(
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user",   "content": chunk},
-                        ],
-                        max_tokens=_max_tok,
-                        temperature=0.1,
-                        top_p=0.95,
-                        repeat_penalty=1.1,
-                    )
-                result = output["choices"][0]["message"]["content"].strip()
+                _max_tok = min(600, int(len(chunk) / 4 * 2) + 100)
+                result = _infer_chunk(
+                    system_prompt, chunk,
+                    max_tokens=_max_tok,
+                    temperature=0.1,
+                    top_p=0.95,
+                    repeat_penalty=1.1,
+                )
                 logger.info("translate_for_voice: chunk %d chars → %d chars result: %.80r",
                             len(chunk), len(result), result)
                 if not result:
@@ -1040,14 +1231,15 @@ def rewrite_tone(
     tone should be one of TONE_OPTIONS.
     """
     if not is_llm_available():
-        raise RuntimeError("llama-cpp-python is not installed.")
+        raise RuntimeError("LLM runtime not available.")
     if not is_qwen_model_ready():
-        raise RuntimeError(f"Qwen model not found at {QWEN_MODEL_PATH}.")
+        raise RuntimeError("LLM model not ready.")
 
     system_prompt = _PROMPTS.get("tone", _TONE_SYSTEM_PROMPT_TEMPLATE).format(tone=tone)
 
-    with _llm_lock:
-        _load_llm()
+    if not _active_is_ollama():
+        with _llm_lock:
+            _load_llm()
 
     paragraphs = [p.strip() for p in re.split(r'\n{2,}', text) if p.strip()]
     if not paragraphs:
@@ -1061,18 +1253,12 @@ def rewrite_tone(
         chunks = _chunk_text(para, max_chars=600)
         para_result = []
         for chunk in chunks:
-            with _llm_lock:
-                output = _llm.create_chat_completion(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user",   "content": chunk},
-                    ],
-                    # ~4 chars per token; tone rewrite ≈ same length; cap at 700
-                    max_tokens=min(700, int(len(chunk) / 4 * 2) + 128),
-                    temperature=0.7,
-                    top_p=0.95,
-                )
-            result = output["choices"][0]["message"]["content"].strip()
+            result = _infer_chunk(
+                system_prompt, chunk,
+                max_tokens=min(700, int(len(chunk) / 4 * 2) + 128),
+                temperature=0.7,
+                top_p=0.95,
+            )
             if len(result) > len(chunk) * 3.5 or len(result) < len(chunk) * 0.3:
                 logger.warning("rewrite_tone: suspicious output length — keeping original.")
                 result = chunk

@@ -177,7 +177,7 @@ class SplashScreen:
 
         ctk.CTkLabel(
             frame,
-            text="TTS/STT Voice Studio",
+            text="Audiobook Studio",
             font=(FONT_FAMILY, 13),
             text_color="#9a9ab0",
         ).pack(pady=(0, 25))
@@ -293,7 +293,7 @@ class KoKoFishApp:
         ctk.CTkLabel(splash_container, text="🐟", font=(FONT_FAMILY, 56)).pack(pady=(40, 5))
         ctk.CTkLabel(splash_container, text="KoKoFish", font=(FONT_FAMILY, 32, "bold"),
                      text_color="#6c83f7").pack(pady=(0, 2))
-        ctk.CTkLabel(splash_container, text="TTS/STT Studio",
+        ctk.CTkLabel(splash_container, text="Audiobook Studio",
                      font=(FONT_FAMILY, 13), text_color="#9a9ab0").pack(pady=(0, 25))
 
         splash_progress = ctk.CTkProgressBar(
@@ -552,7 +552,7 @@ class KoKoFishApp:
         main_root.withdraw()
         main_root.overrideredirect(False)
         main_root.attributes("-topmost", False)
-        main_root.title("KoKoFish — TTS/STT Studio")
+        main_root.title("KoKoFish — Audiobook Studio")
         main_root.geometry(self.settings.window_geometry)
         main_root.minsize(1024, 680)
         main_root.configure(fg_color=COLORS["bg_dark"])
