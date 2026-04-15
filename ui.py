@@ -4378,6 +4378,51 @@ class KoKoFishUI:
             self.fish_status_label.pack(side="right", padx=15, pady=12)
             self._validate_fish_path()
 
+            # Flash Attention status (S1/S1-Mini only)
+            _active_engine = getattr(self.settings, "engine", "fish14")
+            if _active_engine in ("s1mini", "s1"):
+                from utils import is_flash_attn_installed, install_flash_attn
+                fa_row = setting_row(main)
+                ctk.CTkLabel(
+                    fa_row, text="Flash Attention",
+                    font=(FONT_FAMILY, 13), text_color=COLORS["text_primary"],
+                ).pack(side="left", padx=15, pady=12)
+                ctk.CTkLabel(
+                    fa_row, text="Speeds up S1/S1-Mini generation 3–5x on long text",
+                    font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"],
+                ).pack(side="left", padx=(0, 10), pady=12)
+
+                _fa_installed = is_flash_attn_installed()
+                fa_status_lbl = ctk.CTkLabel(
+                    fa_row,
+                    text="✅  Installed" if _fa_installed else "⚠  Not installed — generation will be slower",
+                    font=(FONT_FAMILY, 11),
+                    text_color=COLORS["success"] if _fa_installed else COLORS["warning"],
+                )
+                fa_status_lbl.pack(side="right", padx=15, pady=12)
+
+                if not _fa_installed:
+                    def _install_fa(lbl=fa_status_lbl):
+                        lbl.configure(text="⏳  Installing…", text_color=COLORS["text_muted"])
+                        def _done(ok, msg):
+                            def _ui():
+                                if ok:
+                                    lbl.configure(text="✅  Installed — restart to activate", text_color=COLORS["success"])
+                                else:
+                                    lbl.configure(text="❌  Install failed — see log", text_color=COLORS["danger"])
+                            self.root.after(0, _ui)
+                        install_flash_attn(
+                            on_progress=lambda m, _f: self.root.after(
+                                0, lambda msg=m: lbl.configure(text=msg, text_color=COLORS["text_muted"])
+                            ),
+                            on_complete=_done,
+                        )
+                    ctk.CTkButton(
+                        fa_row, text="⬇  Install", width=90, height=28, corner_radius=6,
+                        fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                        font=(FONT_FAMILY, 11), command=_install_fa,
+                    ).pack(side="right", padx=(0, 5), pady=12)
+
             # Chunk Length slider
             chunk_row = setting_row(main)
             _chunk_init = getattr(self.settings, "tts_chunk_length", 100)
@@ -5712,7 +5757,12 @@ class KoKoFishUI:
             def _ready_ui():
                 popup.grab_release()
                 popup.destroy()
-                self.update_tts_status("✅  Engine ready", COLORS["success"])
+                warnings = getattr(self.tts, "load_warnings", [])
+                if warnings:
+                    # Show the first warning persistently; the rest are in the log
+                    self.update_tts_status(f"⚠  {warnings[0]}", COLORS["warning"])
+                else:
+                    self.update_tts_status("✅  Engine ready", COLORS["success"])
                 try:
                     self.tts_progress.set(0)
                     for btn in (self.btn_play, self.btn_pause, self.btn_save_mp3):

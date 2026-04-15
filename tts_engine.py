@@ -159,6 +159,9 @@ class TTSEngine:
         self.repetition_penalty = 1.2
         self.chunk_length = 150
 
+        # Warnings accumulated during model loading (e.g. CPU fallback, missing flash_attn)
+        self.load_warnings: list = []
+
         # Ensure fish-speech is on sys.path
         if fish_speech_path and fish_speech_path not in sys.path:
             sys.path.insert(0, fish_speech_path)
@@ -315,28 +318,28 @@ class TTSEngine:
                         import flash_attn  # noqa: F401
                         logger.info("flash_attn found — fast attention enabled.")
                     except ImportError:
-                        logger.warning(
-                            "flash_attn not installed — S1/S1-Mini will use the standard "
-                            "attention kernel, which is significantly slower on long sequences. "
-                            "Install flash-attn if you see slow generation times."
+                        _fa_warn = (
+                            "flash_attn not installed — S1/S1-Mini generation will be slower. "
+                            "Install flash-attn for best performance."
                         )
+                        logger.warning(_fa_warn)
+                        self.load_warnings.append(_fa_warn)
                         if on_progress:
-                            on_progress(
-                                "⚠  flash_attn not installed — generation may be slower than expected. "
-                                "See Settings for install help.", 0.5,
-                            )
+                            on_progress(f"⚠  {_fa_warn}", 0.5)
 
                     try:
                         model, decode_fn = _load_on_device(self.device)
                     except RuntimeError as _oom:
                         if "out of memory" in str(_oom).lower() and self.device != "cpu":
+                            _oom_warn = (
+                                "VRAM full — engine fell back to CPU. "
+                                "Close other apps or disable CUDA to avoid this."
+                            )
                             logger.warning("VRAM OOM loading S1Mini — retrying on CPU")
                             _torch.cuda.empty_cache()
+                            self.load_warnings.append(_oom_warn)
                             if on_progress:
-                                on_progress(
-                                    "⚠  VRAM full — falling back to CPU. "
-                                    "Close other apps or lower VRAM usage to run on GPU.", 0.55,
-                                )
+                                on_progress(f"⚠  {_oom_warn}", 0.55)
                             model, decode_fn = _load_on_device("cpu")
                             self.device = "cpu"
                         else:
@@ -381,13 +384,13 @@ class TTSEngine:
                         )
                     except RuntimeError as _oom:
                         if "out of memory" in str(_oom).lower() and self.device != "cpu":
+                            _dac_warn = "VRAM full loading DAC codec — codec running on CPU."
                             logger.warning("VRAM OOM loading DAC codec — retrying on CPU")
                             _torch.cuda.empty_cache()
                             self.device = "cpu"
+                            self.load_warnings.append(_dac_warn)
                             if on_progress:
-                                on_progress(
-                                    "⚠  VRAM full loading codec — falling back to CPU mode.", 0.65,
-                                )
+                                on_progress(f"⚠  {_dac_warn}", 0.65)
                             state_dict = _torch.load(
                                 self.codec_checkpoint_path,
                                 map_location="cpu",

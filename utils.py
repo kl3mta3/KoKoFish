@@ -7,9 +7,11 @@ document export, and system monitoring helpers.
 
 import os
 import re
+import subprocess
 import sys
 import shutil
 import logging
+import threading
 
 import psutil
 import pdfplumber
@@ -260,6 +262,117 @@ def is_fish_speech_ready(engine: str = "fish14") -> bool:
     )
 
 
+def is_flash_attn_installed() -> bool:
+    """Return True if flash_attn is importable."""
+    try:
+        import flash_attn  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+# Latest flash-attention version with Windows + CUDA pre-built wheels.
+# Update this string when a newer release adds windows_amd64 wheels.
+_FA_VERSION = "2.7.4"
+_FA_GITHUB  = "https://github.com/Dao-AILab/flash-attention/releases/download"
+
+
+def _build_flash_attn_wheel_url() -> str | None:
+    """
+    Construct the GitHub pre-built wheel URL for the current
+    Python / PyTorch / CUDA environment on Windows.
+
+    Returns None if the environment is CPU-only or the info can't be read.
+    """
+    try:
+        import torch
+        cuda_str = getattr(torch.version, "cuda", None) or ""
+        if not cuda_str:
+            return None  # CPU-only PyTorch — flash_attn won't help
+        cuda_tag = cuda_str.replace(".", "")  # "12.4" → "124"
+
+        # Strip local/dev suffixes from the torch version string
+        torch_short = re.match(r"(\d+\.\d+\.\d+)", torch.__version__)
+        torch_tag = torch_short.group(1) if torch_short else torch.__version__.split("+")[0]
+
+        py_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"  # "cp312"
+        wheel = (
+            f"flash_attn-{_FA_VERSION}"
+            f"+cu{cuda_tag}torch{torch_tag}cxx11abiFALSE"
+            f"-{py_tag}-{py_tag}-win_amd64.whl"
+        )
+        return f"{_FA_GITHUB}/v{_FA_VERSION}/{wheel}"
+    except Exception as exc:
+        logger.debug("_build_flash_attn_wheel_url failed: %s", exc)
+        return None
+
+
+def install_flash_attn(
+    on_progress=None,
+    on_complete=None,
+):
+    """
+    Install flash-attn in a background thread.
+
+    Strategy:
+      1. Try a pre-built Windows wheel matched to the current Python/PyTorch/CUDA.
+      2. Fall back to `pip install flash-attn --prefer-binary` if the URL fails.
+
+    on_progress(message, fraction) — optional progress callback
+    on_complete(ok: bool, message: str) — called when done
+    """
+    def _worker():
+        app_dir  = os.path.dirname(os.path.abspath(__file__))
+        venv_pip = os.path.join(app_dir, "venv", "Scripts", "pip.exe")
+        pip_cmd  = [venv_pip] if os.path.isfile(venv_pip) else [sys.executable, "-m", "pip"]
+
+        # Try the pre-built wheel URL first
+        wheel_url = _build_flash_attn_wheel_url()
+        attempts = []
+        if wheel_url:
+            attempts.append(("pre-built wheel", pip_cmd + ["install", wheel_url, "--quiet", "--progress-bar", "off"]))
+        # Always have a fallback
+        attempts.append(("PyPI", pip_cmd + ["install", "flash-attn", "--prefer-binary", "--quiet", "--progress-bar", "off"]))
+
+        for label, cmd in attempts:
+            if on_progress:
+                on_progress(f"Installing flash-attn ({label})…", 0.3)
+            logger.info("flash_attn install attempt via %s: %s", label, " ".join(cmd))
+            try:
+                CREATE_NO_WINDOW = 0x08000000
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    creationflags=CREATE_NO_WINDOW,
+                )
+                for line in proc.stdout:
+                    logger.debug("flash_attn pip: %s", line.rstrip())
+                proc.wait()
+                if proc.returncode == 0:
+                    logger.info("flash-attn installed successfully via %s.", label)
+                    if on_progress:
+                        on_progress("flash-attn installed.", 1.0)
+                    if on_complete:
+                        on_complete(True, f"flash-attn installed via {label}.")
+                    return
+                logger.warning("flash-attn install via %s failed (code %d).", label, proc.returncode)
+            except Exception as exc:
+                logger.warning("flash-attn install via %s error: %s", label, exc)
+
+        # Both attempts failed
+        msg = (
+            "flash-attn could not be installed automatically.\n"
+            "You may need to install it manually: pip install flash-attn"
+        )
+        logger.error(msg)
+        if on_complete:
+            on_complete(False, msg)
+
+    threading.Thread(target=_worker, daemon=True, name="FlashAttnInstall").start()
+
+
 def setup_fish_speech(engine: str = "fish14", on_progress=None, hf_token: str = "") -> bool:
     """
     Ensure Fish-Speech code and model checkpoints are present for the given engine.
@@ -368,6 +481,42 @@ def setup_fish_speech(engine: str = "fish14", on_progress=None, hf_token: str = 
         except Exception as exc:
             logger.error("Checkpoint download failed for %s: %s", ckpt_name, exc)
             return False
+
+    # --- Step 3 (OpenAudio only): install flash_attn if missing ---
+    # flash_attn provides 3-5x faster attention for S1/S1-Mini on CUDA.
+    # We attempt install automatically so users don't have to do it manually.
+    if is_openaudio and not is_flash_attn_installed():
+        try:
+            import torch as _torch
+            _has_cuda = _torch.cuda.is_available()
+        except Exception:
+            _has_cuda = False
+
+        if _has_cuda:
+            if on_progress:
+                on_progress("Installing flash-attn for faster S1 generation…", 0.92)
+
+            _fa_done  = threading.Event()
+            _fa_ok    = [False]
+
+            def _fa_complete(ok, _msg, _ev=_fa_done, _res=_fa_ok):
+                _res[0] = ok
+                _ev.set()
+
+            install_flash_attn(on_progress=on_progress, on_complete=_fa_complete)
+            _fa_done.wait(timeout=300)  # up to 5 min — wheel can be ~150 MB
+
+            if not _fa_ok[0]:
+                logger.warning(
+                    "flash-attn install failed; S1/S1-Mini will still work but generation "
+                    "will be slower. Install it manually later: pip install flash-attn"
+                )
+                # Don't return False — the engine itself is ready
+        else:
+            logger.info(
+                "Skipping flash-attn install for S1/S1-Mini (no CUDA). "
+                "Enable CUDA in Settings to use flash_attn."
+            )
 
     if on_progress:
         on_progress("Fish-Speech ready", 1.0)
