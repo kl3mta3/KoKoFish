@@ -308,12 +308,35 @@ class TTSEngine:
                         )
 
                     logger.info("Loading S1/S1-Mini LLM from: %s (device=%s)", self.checkpoint_path, self.device)
+
+                    # Check Flash Attention availability — its absence causes a
+                    # 5-10x slowdown on long sequences with no visible error.
+                    try:
+                        import flash_attn  # noqa: F401
+                        logger.info("flash_attn found — fast attention enabled.")
+                    except ImportError:
+                        logger.warning(
+                            "flash_attn not installed — S1/S1-Mini will use the standard "
+                            "attention kernel, which is significantly slower on long sequences. "
+                            "Install flash-attn if you see slow generation times."
+                        )
+                        if on_progress:
+                            on_progress(
+                                "⚠  flash_attn not installed — generation may be slower than expected. "
+                                "See Settings for install help.", 0.5,
+                            )
+
                     try:
                         model, decode_fn = _load_on_device(self.device)
                     except RuntimeError as _oom:
                         if "out of memory" in str(_oom).lower() and self.device != "cpu":
                             logger.warning("VRAM OOM loading S1Mini — retrying on CPU")
                             _torch.cuda.empty_cache()
+                            if on_progress:
+                                on_progress(
+                                    "⚠  VRAM full — falling back to CPU. "
+                                    "Close other apps or lower VRAM usage to run on GPU.", 0.55,
+                                )
                             model, decode_fn = _load_on_device("cpu")
                             self.device = "cpu"
                         else:
@@ -361,6 +384,10 @@ class TTSEngine:
                             logger.warning("VRAM OOM loading DAC codec — retrying on CPU")
                             _torch.cuda.empty_cache()
                             self.device = "cpu"
+                            if on_progress:
+                                on_progress(
+                                    "⚠  VRAM full loading codec — falling back to CPU mode.", 0.65,
+                                )
                             state_dict = _torch.load(
                                 self.codec_checkpoint_path,
                                 map_location="cpu",

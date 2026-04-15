@@ -151,30 +151,81 @@ def read_source_file(path: str) -> str:
 _KOKORO_PROMPT = (
     "You are a script formatter converting prose fiction into a voice-acted script.\n"
     "Rules:\n"
-    "1. Find all dialogue (text in quotation marks) and identify the speaker from context.\n"
+    "1. Find all dialogue (text in quotation marks) and identify the speaker from surrounding context (e.g. 'said John', 'she replied').\n"
     "2. Format each dialogue line as: [SpeakerName] dialogue text\n"
     "3. Remove all attribution text (e.g. 'John said', 'she replied', 'he asked').\n"
     "4. Format all narration as: [Narrator] narration text\n"
     "5. Do NOT add any emotion or style tags — plain text only.\n"
     "6. If the speaker is unclear, use [Narrator].\n"
-    "7. Known characters: {characters}\n"
+    "7. IMPORTANT: If a character's name appears inside quotation marks (e.g. 'She called out \"John!\"'), "
+    "that is dialogue referencing the name — do NOT treat it as that character speaking.\n"
+    "8. Match the emotional tone of each line to the flow of the conversation. "
+    "Consider what was just said and how the speaker would naturally respond.\n"
+    "9. Known characters: {characters}\n"
     "Output ONLY the formatted script. No explanations, no commentary."
 )
 
 _FISH_PROMPT = (
     "You are a script formatter converting prose fiction into a voice-acted script.\n"
     "Rules:\n"
-    "1. Find all dialogue (text in quotation marks) and identify the speaker from context.\n"
+    "1. Find all dialogue (text in quotation marks) and identify the speaker from surrounding context (e.g. 'said John', 'she replied').\n"
     "2. Format each dialogue line as: [SpeakerName] (emotion) dialogue text\n"
     "3. Remove all attribution text (e.g. 'John said excitedly', 'she whispered', 'he shouted').\n"
     "4. Format all narration as: [Narrator] narration text\n"
     "5. Add ONE emotion tag before the dialogue based on how it was spoken:\n"
     "   (excited) (happy) (satisfied) (confident) (gentle) (serious) (sad) (angry) (nervous) (fearful) (surprised) (confused)\n"
     "   Use [whisper] for whispered speech. Use (laugh) for laughing.\n"
-    "6. If the speaker is unclear, use [Narrator].\n"
-    "7. Known characters: {characters}\n"
+    "6. IMPORTANT: If a character's name appears inside quotation marks (e.g. 'She called out \"John!\"'), "
+    "that is dialogue referencing the name — do NOT treat it as that character speaking.\n"
+    "7. Match emotion tags to the flow of conversation — consider what was said in the previous line "
+    "and choose an emotion that makes sense as a natural response or continuation.\n"
+    "8. If the speaker is unclear, use [Narrator].\n"
+    "9. Known characters: {characters}\n"
     "Output ONLY the formatted script. No explanations, no commentary."
 )
+
+_ENHANCE_KOKORO_PROMPT = (
+    "You are a script editor improving a voice-acted script for natural flow and emotional continuity.\n"
+    "The script uses the format: [CharacterName] dialogue text\n"
+    "Rules:\n"
+    "1. Keep all [CharacterName] tags exactly as they are. Do NOT change speaker names.\n"
+    "2. Improve the dialogue text for natural spoken delivery — fix awkward phrasing, "
+    "remove written-prose habits, and make lines sound like they were actually spoken.\n"
+    "3. Ensure emotional continuity: each line should feel like a natural response to the previous one. "
+    "Characters should react to each other realistically.\n"
+    "4. Do NOT add emotion tags — this is for the Kokoro engine which uses plain text.\n"
+    "5. Do NOT summarize, shorten, or remove lines. Every line in must produce a line out.\n"
+    "6. IMPORTANT: Names inside quotation marks within dialogue are references, not speakers — leave them.\n"
+    "Output ONLY the improved script. No explanations, no commentary."
+)
+
+_ENHANCE_FISH_PROMPT = (
+    "You are a script editor improving a voice-acted script for natural flow and emotional continuity.\n"
+    "The script uses the format: [CharacterName] (emotion) dialogue text\n"
+    "Rules:\n"
+    "1. Keep all [CharacterName] tags exactly as they are. Do NOT change speaker names.\n"
+    "2. Update or correct the (emotion) tag on each dialogue line so it matches the flow of conversation. "
+    "Valid tags: (excited) (happy) (satisfied) (confident) (gentle) (serious) (sad) (angry) "
+    "(nervous) (fearful) (surprised) (confused) (laugh) [whisper]\n"
+    "3. Improve dialogue text for natural spoken delivery — fix awkward phrasing and written-prose habits.\n"
+    "4. Ensure emotional continuity: each character's emotional state should react realistically to the previous line.\n"
+    "5. Do NOT summarize, shorten, or remove lines. Every line in must produce a line out.\n"
+    "6. IMPORTANT: Names inside quotation marks within dialogue are references, not speakers — leave them.\n"
+    "Output ONLY the improved script. No explanations, no commentary."
+)
+
+
+def find_characters_in_script(script_text: str) -> list:
+    """
+    Scan script_text for all [Name] tags and return a sorted unique list.
+    Always includes 'Narrator'. Names inside quotes are ignored by the parser
+    because they follow the bracket format, not the quote format.
+    """
+    names = set()
+    names.add("Narrator")
+    for m in re.finditer(r'^\[([^\]]+)\]', script_text, re.MULTILINE):
+        names.add(m.group(1).strip())
+    return sorted(names)
 
 
 def tag_script_with_ai(
@@ -252,3 +303,79 @@ def tag_script_with_ai(
         on_progress("Done.", 1.0)
 
     return "\n".join(result_parts)
+
+
+def enhance_script_flow(
+    script_text: str,
+    engine: str,
+    on_progress=None,
+) -> str:
+    """
+    Run the already-tagged script through the LLM to improve emotional
+    continuity, natural delivery, and conversation flow.
+
+    engine     : 'kokoro' | 'fish14' | 'fish15' | 's1mini' | 's1'
+    on_progress: optional callable(message: str, fraction: float)
+
+    Returns the enhanced script as a string.
+    """
+    try:
+        from tag_suggester import (
+            _infer_chunk, is_llm_available, is_qwen_model_ready,
+            _load_llm, _active_is_ollama, _llm_lock,
+        )
+    except ImportError as exc:
+        raise RuntimeError(f"LLM not available: {exc}")
+
+    if not is_llm_available():
+        raise RuntimeError(
+            "LLM runtime not installed.\n"
+            "Install llama-cpp-python from Settings."
+        )
+    if not is_qwen_model_ready():
+        raise RuntimeError(
+            "No LLM model downloaded.\n"
+            "Download a model from Settings."
+        )
+
+    system_prompt = _ENHANCE_KOKORO_PROMPT if engine == "kokoro" else _ENHANCE_FISH_PROMPT
+
+    if not _active_is_ollama():
+        with _llm_lock:
+            _load_llm()
+
+    # Split into ~30-line windows so the model sees enough context for continuity
+    lines = [l for l in script_text.splitlines() if l.strip()]
+    window = 30
+    result_lines = []
+    total = max(len(lines), 1)
+
+    for i in range(0, len(lines), window):
+        chunk_lines = lines[i:i + window]
+        chunk = "\n".join(chunk_lines)
+        if on_progress:
+            on_progress(
+                f"Enhancing lines {i + 1}–{min(i + window, total)} of {total}...",
+                i / total,
+            )
+        try:
+            max_tok = min(1200, int(len(chunk) / 4 * 3) + 300)
+            enhanced = _infer_chunk(
+                system_prompt, chunk,
+                max_tokens=max_tok,
+                temperature=0.3,
+                top_p=0.95,
+                repeat_penalty=1.1,
+            )
+            if enhanced and enhanced.strip():
+                result_lines.extend(enhanced.strip().splitlines())
+            else:
+                result_lines.extend(chunk_lines)
+        except Exception as exc:
+            logger.warning("enhance_script_flow chunk failed: %s", exc)
+            result_lines.extend(chunk_lines)
+
+    if on_progress:
+        on_progress("Enhancement complete.", 1.0)
+
+    return "\n".join(result_lines)

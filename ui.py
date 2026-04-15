@@ -3140,6 +3140,7 @@ class KoKoFishUI:
             default_profile, list_profiles, load_profile, save_profile,
             delete_profile, parse_script, format_script,
             read_source_file, tag_script_with_ai,
+            find_characters_in_script, enhance_script_flow,
         )
 
         tab = self.tab_script
@@ -3342,12 +3343,40 @@ class KoKoFishUI:
         )
         char_scroll.pack(fill="both", expand=True, padx=8, pady=(0, 4))
 
+        def _find_characters():
+            """Scan the script for [Name] tags and add any new ones to the profile."""
+            # script_text and status_var are defined later in the outer scope;
+            # Python closures are late-binding so they'll be available at call time.
+            found = find_characters_in_script(script_text.get("1.0", "end"))
+            existing = {r["name_var"].get().strip() for r in self._script_char_rows
+                        if r["frame"].winfo_exists()}
+            voices = _get_voice_options()
+            added = 0
+            for name in found:
+                if name and name not in existing:
+                    _add_char_row(name, "", voices)
+                    added += 1
+            if added:
+                status_var.set(f"Found {added} new character(s) in script.")
+            else:
+                status_var.set("No new characters found.")
+
+        add_row = ctk.CTkFrame(left, fg_color="transparent")
+        add_row.pack(fill="x", padx=12, pady=(4, 12))
+
         ctk.CTkButton(
-            left, text="+ Add Character", height=32,
+            add_row, text="+ Add Character", height=32,
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_primary"],
             command=lambda: _add_char_row(),
-        ).pack(fill="x", padx=12, pady=(4, 12))
+        ).pack(side="left", fill="x", expand=True, padx=(0, 4))
+
+        ctk.CTkButton(
+            add_row, text="Find in Script", height=32,
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_secondary"],
+            command=_find_characters,
+        ).pack(side="left", fill="x", expand=True)
 
         # == RIGHT: Script Editor ==========================================
         right = ctk.CTkFrame(outer, fg_color=COLORS["bg_card"], corner_radius=10)
@@ -3585,9 +3614,39 @@ class KoKoFishUI:
             command=_run_ai_tag,
         ).pack(side="left", padx=4, pady=6)
 
+        def _run_enhance():
+            text = script_text.get("1.0", "end").strip()
+            if not text:
+                status_var.set("Script is empty — nothing to enhance.")
+                return
+            engine = getattr(self.settings, "engine", "kokoro")
+            status_var.set("Enhancing script flow...")
+
+            def _worker():
+                try:
+                    def _prog(msg, _frac):
+                        self.root.after(0, lambda m=msg: status_var.set(m))
+                    enhanced = enhance_script_flow(text, engine, on_progress=_prog)
+                    def _apply():
+                        script_text.delete("1.0", "end")
+                        script_text.insert("1.0", enhanced)
+                        status_var.set("Script enhancement complete.")
+                    self.root.after(0, _apply)
+                except Exception as exc:
+                    self.root.after(0, lambda e=exc: status_var.set(f"Enhance failed: {e}"))
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        ctk.CTkButton(
+            ai_bar, text="Enhance Script", width=110, height=28,
+            fg_color=COLORS["bg_dark"], hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_primary"],
+            command=_run_enhance,
+        ).pack(side="left", padx=4, pady=6)
+
         ctk.CTkLabel(
             ai_bar,
-            text="Engine-aware: Kokoro = plain tags  |  Fish-Speech = emotion tags",
+            text="Kokoro = plain tags  |  Fish-Speech = emotion tags",
             font=(FONT_FAMILY, 10), text_color=COLORS["text_secondary"],
         ).pack(side="right", padx=10, pady=6)
 

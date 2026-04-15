@@ -48,6 +48,16 @@ Everything runs locally on your machine. No subscriptions. No API keys. No inter
 - Supports .wav, .mp3, .m4a, .flac, and .ogg
 - Export transcription as .txt, .docx, or .pdf
 
+**Script Lab — Multi-Voice Audiobook Production**
+
+- Write or generate a multi-character script using `[CharacterName] dialogue` format
+- Assign a voice to each character in a reusable Character Profile
+- AI script generation from raw prose — automatically identifies speakers, strips attribution text, and formats the script (with optional emotion tags for Fish-Speech)
+- **Find in Script** — scan any tagged script and auto-populate the character list with every name found
+- **Enhance Script** — LLM pass over the finished script to improve conversation flow, natural delivery, and emotional continuity between lines
+- Play the full script with each character's assigned voice, switching voices per segment automatically
+- Export the script as a `.txt` transcript or the audio as a `.wav`
+
 **AI Writing Tools (powered by local LLM)**
 
 - Grammar check and correction
@@ -231,8 +241,11 @@ KoKoFish/
   tag_suggester.py     -- AI writing tools (grammar, tone, translate, tags)
   voice_manager.py     -- voice profile creation and management
   settings.py          -- persistent settings backed by settings.json
+  script_engine.py     -- Script Lab: profile management, script parsing, AI tagging
   utils.py             -- file readers, audio export, FFmpeg utilities
   bin/                 -- bundled ffmpeg.exe
+  scripts/
+    profiles/          -- character profiles (JSON) for Script Lab
   models/              -- downloaded LLM and Kokoro model files
   voices/
     fish14/            -- voice profiles for Fish-Speech 1.4
