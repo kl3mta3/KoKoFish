@@ -6,7 +6,11 @@
 
 <h1 align="center">KoKoFish</h1>
 
-KoKoFish is a desktop Audiobook Studio built for Windows. Convert text, ebooks, and documents into spoken audio using multiple AI voices — then play them back, export to MP3/WAV, or transcribe audio back to text. Designed for writers, ebook lovers, and anyone who wants to hear their content read aloud. Works entirely offline once models are downloaded.
+KoKoFish is a free, offline-first Audiobook Studio for Windows — built for writers, readers, and anyone who wants to bring text to life.
+
+Turn any document into a full audiobook with a single drag and drop. Choose from 54 built-in voices across 10 languages, clone your own voice, blend two voices together, or let the AI rewrite and enhance your text before it ever hits the speaker. Transcribe audio back to text, translate between languages, convert file formats, and combine chapters into a finished M4B — all without sending a single byte to the cloud.
+
+Everything runs locally on your machine. No subscriptions. No API keys. No internet required after the first setup.
 
 ---
 
