@@ -225,13 +225,13 @@ class KoKoFishUI:
         )
         title_label.pack(side="left", pady=10)
 
-        subtitle = ctk.CTkLabel(
+        self._subtitle_label = ctk.CTkLabel(
             header,
             text=t("LAUNCHER_SUBTITLE"),
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_secondary"],
         )
-        subtitle.pack(side="left", padx=(12, 0), pady=(18, 10))
+        self._subtitle_label.pack(side="left", padx=(12, 0), pady=(18, 10))
 
         # Settings button — top right
         self._settings_window = None
@@ -377,6 +377,8 @@ class KoKoFishUI:
         # Update the Settings button label while we're here
         if hasattr(self, "_settings_btn"):
             self._settings_btn.configure(text=t("SETTINGS_TAB_LABEL"))
+        if hasattr(self, "_subtitle_label"):
+            self._subtitle_label.configure(text=t("LAUNCHER_SUBTITLE"))
 
         # ── Destroy and rebuild ──────────────────────────────────────────────
         self.tabview.destroy()
