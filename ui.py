@@ -185,6 +185,11 @@ class KoKoFishUI:
         self._preview_pos = 0
         self._preview_sr = None
 
+        # TTS generation streaming stream (real-time chunk playback during generation)
+        self._tts_gen_stream = None      # sounddevice OutputStream for live chunk playback
+        self._tts_gen_queue  = None      # the sample queue feeding that stream
+        self._tts_gen_active = False     # True while a generation stream is running
+
         # Most recently completed WAV (used by manual Save MP3)
         self._last_wav_path = None
 
@@ -255,9 +260,9 @@ class KoKoFishUI:
             header,
             variable=self._lang_var,
             values=_lang_names,
-            width=180,
-            height=32,
-            font=(FONT_FAMILY, 12),
+            width=145,
+            height=26,
+            font=(FONT_FAMILY, 10),
             fg_color=COLORS["bg_input"],
             button_color=COLORS["bg_card_hover"],
             button_hover_color=COLORS["accent"],
@@ -269,6 +274,8 @@ class KoKoFishUI:
             command=self._on_language_changed,
         )
         self._lang_menu.pack(side="right", padx=(0, 8), pady=10)
+        ctk.CTkLabel(header, text="Language:", font=(FONT_FAMILY, 10),
+                     text_color=COLORS["text_muted"]).pack(side="right", padx=(0, 2), pady=10)
 
         # Tab view
         self.tabview = ctk.CTkTabview(
@@ -2276,7 +2283,7 @@ class KoKoFishUI:
                 _prv.pack(side="right", padx=(0, 2))
                 self._make_tooltip(_prv, t("LISTEN_LAB_TOOLTIP_PREV_CH"))
 
-            # Name / status label
+            # Name / status label — no expand so waveform can fill remaining space
             if is_active:
                 _status_map = {
                     "transcribing": t("LISTEN_LAB_STATUS_TRANSCRIBING"),
@@ -2286,31 +2293,33 @@ class KoKoFishUI:
                 ctk.CTkLabel(top, text=_status_map.get(tl_status, tl_status),
                              font=(FONT_FAMILY, 11, "italic"),
                              text_color=COLORS["warning"], anchor="w").pack(
-                                 side="left", fill="x", expand=True, padx=4)
+                                 side="left", padx=4)
             elif is_error:
                 err_short = str(item.get("tl_error", "Error"))[:60]
                 ctk.CTkLabel(top, text=f"⚠  {err_short}",
                              font=(FONT_FAMILY, 11), text_color=COLORS["danger"],
-                             anchor="w").pack(side="left", fill="x", expand=True, padx=4)
+                             anchor="w").pack(side="left", padx=4)
             else:
-                suffix = "  ✓ translated" if is_done else ""
-                ctk.CTkLabel(top, text=item["name"] + suffix,
+                suffix = "  ✓" if is_done else ""
+                # Truncate long names so the waveform always gets space
+                _name_str = item["name"] + suffix
+                if len(_name_str) > 36:
+                    _name_str = _name_str[:34] + "…"
+                ctk.CTkLabel(top, text=_name_str,
                              font=(FONT_FAMILY, 12),
                              text_color=COLORS["success"] if is_done else COLORS["text_primary"],
-                             anchor="w").pack(side="left", fill="x", expand=True, padx=4)
+                             anchor="w").pack(side="left", padx=4)
 
-            # ── Waveform + playhead ───────────────────────────────────────
+            # ── Waveform inline (right of name, inside the top row) ───────
             waveform = item.get("waveform")
             duration  = item.get("duration_sec", 0)
             if waveform and duration > 0:
-                wf_frame = ctk.CTkFrame(row, fg_color="transparent", height=36)
-                wf_frame.pack(fill="x", padx=8, pady=(0, 4))
-                wf_frame.pack_propagate(False)
                 wf_canvas = tk.Canvas(
-                    wf_frame, height=36, bg="#0f0f1a",
-                    highlightthickness=0, bd=0,
+                    top, height=28, bg="#0f0f1a",
+                    highlightthickness=1, highlightbackground="#1e2a3a", bd=0,
+                    cursor="hand2",
                 )
-                wf_canvas.pack(fill="both", expand=True)
+                wf_canvas.pack(side="left", fill="x", expand=True, padx=(6, 6), pady=6)
                 item["_waveform_canvas"] = wf_canvas
                 item["_waveform_data"]   = waveform
                 item["_waveform_dur"]    = duration
@@ -2341,7 +2350,17 @@ class KoKoFishUI:
                         px = int((pos / dur) * w)
                         c.create_line(px, 0, px, h, fill="white", width=2, tags="playhead")
 
+                def _on_wf_seek(event, c=wf_canvas, it=item, i=idx):
+                    w = c.winfo_width()
+                    dur = it.get("duration_sec", 0)
+                    if w > 0 and dur > 0:
+                        ratio = max(0.0, min(1.0, event.x / w))
+                        target_sec = ratio * dur
+                        self._listen_seek_abs(i, target_sec)
+
                 wf_canvas.bind("<Configure>", lambda e, d=_draw_waveform: d())
+                wf_canvas.bind("<ButtonPress-1>", _on_wf_seek)
+                wf_canvas.bind("<B1-Motion>",     _on_wf_seek)
                 wf_canvas.after(50, _draw_waveform)
             else:
                 item["_waveform_canvas"] = None
@@ -2731,6 +2750,16 @@ class KoKoFishUI:
                     self._listen_preview_pos_sec = self._listen_preview_pos / self._listen_preview_sr
                 except Exception:
                     pass
+
+    def _listen_seek_abs(self, idx: int, target_sec: float):
+        """Seek to an absolute position (seconds) for the given item."""
+        if self._listen_preview_idx != idx:
+            # Item not playing — just update playhead visually
+            if 0 <= idx < len(self._listen_items):
+                self._listen_items[idx]["_playhead_sec"] = target_sec
+            return
+        delta = target_sec - self._listen_preview_pos_sec
+        self._listen_seek(delta)
 
     def _listen_prev(self):
         """Stop current playback and play the previous item."""
@@ -6384,8 +6413,9 @@ class KoKoFishUI:
     def _cancel_item(self, index: int):
         """Cancel an actively generating item or remove it from the queue."""
         if index == self._current_playing:
-            # Stop generation, then advance queue
+            # Stop generation engine AND kill the live audio stream immediately
             self.tts.cancel()
+            self._stop_tts_gen_stream()
             self._is_playing = False
             self._current_playing = -1
             if self._single_item_queue:
@@ -6528,6 +6558,12 @@ class KoKoFishUI:
     def _tts_remove_item(self, index: int):
         if self._preview_idx == index:
             self._stop_preview()
+        if self._current_playing == index:
+            # Item is actively generating — cancel engine and kill audio immediately
+            self.tts.cancel()
+            self._stop_tts_gen_stream()
+            self._is_playing = False
+            self._current_playing = -1
         if 0 <= index < len(self._playlist_items):
             self._playlist_items.pop(index)
             self._rebuild_playlist_ui()
@@ -6598,6 +6634,25 @@ class KoKoFishUI:
         )
         self._preview_stream = stream
         stream.start()
+
+    def _stop_tts_gen_stream(self):
+        """Immediately kill the real-time TTS generation audio stream and drain its queue."""
+        self._tts_gen_active = False
+        q = self._tts_gen_queue
+        if q is not None:
+            # Drain so the _finish thread doesn't block
+            while not q.empty():
+                try: q.get_nowait()
+                except Exception: break
+            self._tts_gen_queue = None
+        s = self._tts_gen_stream
+        if s is not None:
+            try:
+                s.stop()
+                s.close()
+            except Exception:
+                pass
+            self._tts_gen_stream = None
 
     def _stop_preview(self):
         """Stop any active item preview."""
@@ -7140,6 +7195,8 @@ class KoKoFishUI:
         _sample_queue = _queue.Queue()
         _SENTINEL = object()
         _stream = [None]
+        self._tts_gen_queue  = _sample_queue
+        self._tts_gen_active = True
 
         def _stream_callback(outdata, frames, time_info, status):
             vol = self.vol_slider.get() / 100.0
@@ -7168,6 +7225,8 @@ class KoKoFishUI:
 
         def on_chunk(chunk_np, sr):
             """Push decoded samples into the playback stream (skipped in silent mode)."""
+            if not self._tts_gen_active:
+                return  # cancelled — discard chunk
             if self.silent_mode_var.get():
                 return  # Work Silent: generate only, no output
             if _stream[0] is None:
@@ -7177,6 +7236,7 @@ class KoKoFishUI:
                 )
                 s.start()
                 _stream[0] = s
+                self._tts_gen_stream = s
             _sample_queue.put(chunk_np.astype(_np.float32))
 
         def on_complete(wav_path):
@@ -7186,6 +7246,12 @@ class KoKoFishUI:
             _sample_queue.put(_SENTINEL)
             def _finish():
                 import time as _t
+                if not self._tts_gen_active:
+                    # Cancelled while finishing — just clean up and return
+                    while not _sample_queue.empty():
+                        try: _sample_queue.get_nowait()
+                        except Exception: break
+                    return
                 if self.silent_mode_var.get() or _stream[0] is None:
                     # Silent mode (or stream never started): nothing is consuming
                     # the queue so drain it ourselves to avoid an infinite wait.
@@ -7196,10 +7262,11 @@ class KoKoFishUI:
                             break
                 else:
                     # Wait until the audio stream callback consumes everything
-                    while not _sample_queue.empty():
+                    while not _sample_queue.empty() and self._tts_gen_active:
                         _t.sleep(0.1)
                     # Give it a moment to finish playing the final buffer
-                    _t.sleep(0.5)
+                    if self._tts_gen_active:
+                        _t.sleep(0.5)
 
                 if _stream[0]:
                     try:
@@ -7207,6 +7274,8 @@ class KoKoFishUI:
                         _stream[0].close()
                     except Exception:
                         pass
+                self._tts_gen_stream = None
+                self._tts_gen_active = False
 
                 # Auto-save to outputs/<stem>/<stem>.mp3 if toggle is on
                 if self.auto_save_var.get() and wav_path and os.path.isfile(wav_path):
@@ -7248,6 +7317,8 @@ class KoKoFishUI:
             if _stream[0]:
                 try: _stream[0].stop(); _stream[0].close()
                 except Exception: pass
+            self._tts_gen_stream = None
+            self._tts_gen_active = False
             self.root.after(0, lambda: self.tts_status.configure(text=t("SPEECH_LAB_STATUS_ERROR", error=exc)))
 
         # Route to correct engine based on settings
