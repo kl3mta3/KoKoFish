@@ -175,6 +175,32 @@ class KoKoFishUI:
             command=self._open_settings_window,
         ).pack(side="right", pady=10)
 
+        # Language selector — to the left of Settings button
+        from lang import get_languages, get_current_language
+        _langs = get_languages()
+        _lang_names = [name for _, name in _langs]
+        _current_code = get_current_language()
+        _current_name = next((name for code, name in _langs if code == _current_code), _lang_names[0] if _lang_names else "English")
+        self._lang_var = ctk.StringVar(value=_current_name)
+        self._lang_menu = ctk.CTkOptionMenu(
+            header,
+            variable=self._lang_var,
+            values=_lang_names,
+            width=180,
+            height=32,
+            font=(FONT_FAMILY, 12),
+            fg_color=COLORS["bg_input"],
+            button_color=COLORS["bg_card_hover"],
+            button_hover_color=COLORS["accent"],
+            text_color=COLORS["text_primary"],
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_hover_color=COLORS["bg_card_hover"],
+            dropdown_text_color=COLORS["text_primary"],
+            corner_radius=8,
+            command=self._on_language_changed,
+        )
+        self._lang_menu.pack(side="right", padx=(0, 8), pady=10)
+
         # Tab view
         self.tabview = ctk.CTkTabview(
             self.root,
@@ -233,6 +259,43 @@ class KoKoFishUI:
 
         # Bind tab change for memory saver
         self.tabview.configure(command=self._on_tab_changed)
+
+    # ==================================================================
+    # Language switching
+    # ==================================================================
+
+    def _on_language_changed(self, lang_name: str):
+        """Called when the user picks a new language from the dropdown."""
+        from lang import get_languages, save_language_pref, load_language
+        langs = get_languages()
+        code = next((c for c, n in langs if n == lang_name), "en")
+        save_language_pref(code)
+        load_language(code)
+        self._rebuild_all_tabs()
+
+    def _rebuild_all_tabs(self):
+        """Destroy and rebuild all tab content so t() calls re-evaluate in the new language."""
+        # Destroy all children inside each tab frame
+        for tab_frame in (
+            self.tab_tts,
+            self.tab_voices,
+            self.tab_stt,
+            self.tab_convert,
+            self.tab_listen,
+            self.tab_script,
+            self.tab_chat,
+        ):
+            for child in tab_frame.winfo_children():
+                child.destroy()
+
+        # Rebuild each tab
+        self._build_tts_tab()
+        self._build_voice_lab_tab()
+        self._build_stt_tab()
+        self._build_convert_tab()
+        self._build_listen_lab_tab()
+        self._build_script_lab_tab()
+        self._build_prompt_lab_tab()
 
     # ==================================================================
     # Tooltip helper
