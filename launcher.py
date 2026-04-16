@@ -5,10 +5,8 @@ This file uses ONLY built-in Python libraries (tkinter, os, subprocess)
 so it can run on a completely bare Python installation.
 
 It serves as the main entry point:
-1. Shows a clean GUI Splash Screen
-2. Checks if venv exists
-3. (First Run) Creates venv and quietly installs from local packages/
-4. Re-launches the main app (main.py) inside the new venv.
+1. On first run: shows a language picker, then the installer GUI.
+2. On subsequent runs: launches main.py directly inside the venv.
 """
 
 # ===========================================================================
@@ -44,14 +42,14 @@ _log(f"Frozen    : {getattr(sys, 'frozen', False)}")
 # ===========================================================================
 # Rest of imports
 # ===========================================================================
+import math
 import subprocess
 import threading
 import traceback
-import math
 import tkinter as tk
 import tkinter.ttk as ttk
 from tkinter import messagebox
-from lang import t, load_language
+from lang import t, load_language, save_language_pref, get_languages
 
 VENV_DIR     = os.path.join(APP_DIR, "venv")
 SETUP_MARKER = os.path.join(APP_DIR, ".setup_complete")
@@ -139,17 +137,120 @@ def _count_requirements(req_file: str) -> int:
                 if line and not line.startswith("#") and not line.startswith("-"):
                     count += 1
     except Exception:
-        count = 30  # fallback estimate
+        count = 30
     return max(count, 1)
 
 
+# ===========================================================================
+# Language Picker — shown once on first run before the installer opens
+# ===========================================================================
+class LanguagePickerDialog(tk.Tk):
+    """
+    Tiny styled window that lets the user pick their language before
+    the installer begins.  Saves the preference via save_language_pref()
+    so both the installer and the main app start in the chosen language.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+        self.title(t("LAUNCHER_LANG_PICKER_TITLE"))
+        self.configure(bg="#0f0f1a")
+        self.overrideredirect(True)
+        self.resizable(False, False)
+
+        W, H = 320, 200
+        self.update_idletasks()
+        x = (self.winfo_screenwidth()  - W) // 2
+        y = (self.winfo_screenheight() - H) // 2
+        self.geometry(f"{W}x{H}+{x}+{y}")
+
+        # ── Fish header ────────────────────────────────────────────────────
+        tk.Label(
+            self, text="🐟 KoKoFish", font=("Segoe UI", 20, "bold"),
+            bg="#0f0f1a", fg="#6c83f7"
+        ).pack(pady=(22, 2))
+
+        # ── Label ──────────────────────────────────────────────────────────
+        tk.Label(
+            self, text=t("LAUNCHER_LANG_PICKER_LABEL"),
+            font=("Segoe UI", 10), bg="#0f0f1a", fg="#9a9ab0"
+        ).pack(pady=(8, 4))
+
+        # ── Dropdown ───────────────────────────────────────────────────────
+        languages = get_languages()   # [(code, display_name), ...]
+        self._lang_codes = [code for code, _ in languages]
+        display_names    = [name for _, name in languages]
+
+        self._selected = tk.StringVar(value=display_names[0] if display_names else "English")
+
+        style = ttk.Style(self)
+        style.theme_use("default")
+        style.configure(
+            "KoKo.TCombobox",
+            fieldbackground="#1a1a2e",
+            background="#1a1a2e",
+            foreground="#e8e8f0",
+            selectbackground="#6c83f7",
+            selectforeground="#ffffff",
+            bordercolor="#6c83f7",
+            arrowcolor="#6c83f7",
+        )
+        self._combo = ttk.Combobox(
+            self, textvariable=self._selected,
+            values=display_names, state="readonly",
+            style="KoKo.TCombobox", width=26, font=("Segoe UI", 10)
+        )
+        self._combo.pack(pady=(0, 14))
+
+        # ── Continue button ────────────────────────────────────────────────
+        btn_frame = tk.Frame(self, bg="#0f0f1a")
+        btn_frame.pack()
+        tk.Button(
+            btn_frame,
+            text=t("LAUNCHER_LANG_PICKER_BTN"),
+            font=("Segoe UI", 10, "bold"),
+            bg="#6c83f7", fg="#ffffff",
+            activebackground="#8a9af9", activeforeground="#ffffff",
+            relief="flat", padx=24, pady=6,
+            cursor="hand2",
+            command=self._confirm,
+        ).pack()
+
+        self._chosen_code = "en"
+
+    def _confirm(self):
+        selected_name = self._selected.get()
+        # Map display name back to language code
+        languages = get_languages()
+        for code, name in languages:
+            if name == selected_name:
+                self._chosen_code = code
+                break
+        _log(f"Language chosen: {self._chosen_code}")
+        save_language_pref(self._chosen_code)
+        load_language(self._chosen_code)
+        self.destroy()
+
+    @classmethod
+    def pick(cls) -> str:
+        """Show the picker and return the chosen language code."""
+        picker = cls()
+        picker.mainloop()
+        return picker._chosen_code
+
+
+# ===========================================================================
+# Main Installer GUI
+# ===========================================================================
 class InstallerGUI(tk.Tk):
     # Progress milestones (%)
-    _P_VENV    = 5
-    _P_PIP     = 10
-    _P_TORCH   = 35
-    _P_LLAMA   = 45
-    _P_REQ_END = 99
+    _P_VENV      = 5
+    _P_PIP       = 10
+    _P_TORCH     = 35
+    _P_LLAMA     = 45
+    _P_REQ_END   = 85   # requirements.txt finishes here
+    _P_KOKORO_END = 99  # Kokoro model download finishes here
 
     def __init__(self):
         super().__init__()
@@ -159,7 +260,7 @@ class InstallerGUI(tk.Tk):
         self.configure(bg="#0f0f1a")
 
         self.update_idletasks()
-        x = (self.winfo_screenwidth() - 450) // 2
+        x = (self.winfo_screenwidth()  - 450) // 2
         y = (self.winfo_screenheight() - 340) // 2
         self.geometry(f"+{x}+{y}")
         self.overrideredirect(True)
@@ -214,15 +315,12 @@ class InstallerGUI(tk.Tk):
         )
         self._canvas.pack(side="bottom", pady=(4, 8))
 
-        # Fish label drawn on canvas
-        self._canvas.create_text(
-            195, 42, text="🐟", font=("Segoe UI", 18), anchor="e",
-            tags="fish"
-        )
+        # Swimming fish state — _tick draws everything each frame
+        self._fish_x      = 50.0   # start near left edge
+        self._fish_dir    = 1      # +1 = right, -1 = left
 
-        # Animation state
-        self._anim_step  = 0
-        self._anim_id    = None
+        self._anim_step   = 0
+        self._anim_id     = None
         self._anim_active = True
         self._tick()
 
@@ -231,28 +329,110 @@ class InstallerGUI(tk.Tk):
         if not self._anim_active:
             return
         c = self._canvas
+        c.delete("fish")
         c.delete("bubble")
 
-        CYCLE   = 40          # frames for one bubble to travel top-to-bottom
-        OFFSETS = [0, 13, 26] # stagger the 3 bubbles evenly across the cycle
-        FISH_X  = 200
-        FISH_Y  = 44
-        RISE    = 48          # total pixels bubbles travel upward
+        # ── Fish swim constants ────────────────────────────────────────────
+        SPEED     = 1.2        # px per frame
+        FISH_MIN  = 36         # left turn-around x
+        FISH_MAX  = 414        # right turn-around x
+        FY        = 38         # fish centre y (canvas is 60px tall)
+        FH        = 9          # half-height of body
+        FW        = 14         # half-width of body
 
-        s = self._anim_step
-        for offset in OFFSETS:
-            phase = ((s + offset) % CYCLE) / CYCLE   # 0.0 → 1.0
-            x     = FISH_X + 10 + OFFSETS.index(offset) * 7
-            y     = FISH_Y - int(phase * RISE)
-            r     = 2 + int(phase * 7)               # radius 2 → 9
-            # Colour lightens as bubble rises
+        # ── Bubble constants (slightly slower than before) ─────────────────
+        CYCLE     = 52         # frames per bubble cycle  (was 40)
+        OFFSETS   = [0, 17, 34]
+        RISE      = 50
+
+        s  = self._anim_step
+        dr = self._fish_dir
+
+        # Move fish
+        self._fish_x += dr * SPEED
+        if self._fish_x >= FISH_MAX:
+            self._fish_x = FISH_MAX
+            self._fish_dir = -1
+            dr = -1
+        elif self._fish_x <= FISH_MIN:
+            self._fish_x = FISH_MIN
+            self._fish_dir = 1
+            dr = 1
+
+        cx = int(self._fish_x)
+
+        # Gentle tail waggle via sine — tip swings ±4px
+        waggle = int(4 * math.sin(s * 0.30))
+
+        # ── Draw fish ─────────────────────────────────────────────────────
+        if dr == -1:   # facing LEFT — tail on right, mouth on left
+            # Tail
+            c.create_polygon(
+                cx + FW, FY - FH,
+                cx + FW + 12, FY + waggle,
+                cx + FW, FY + FH,
+                fill="#6c83f7", outline="", tags="fish"
+            )
+            # Body
+            c.create_oval(
+                cx - FW, FY - FH, cx + FW, FY + FH,
+                fill="#6c83f7", outline="", tags="fish"
+            )
+            # Pectoral fin (lighter blue, below body)
+            c.create_polygon(
+                cx - 2, FY + 4,
+                cx + 7, FY + FH,
+                cx - 7, FY + FH,
+                fill="#8a9af9", outline="", tags="fish"
+            )
+            # Eye near mouth (left side)
+            c.create_oval(
+                cx - FW + 3, FY - 3,
+                cx - FW + 8, FY + 2,
+                fill="#0f0f1a", outline="", tags="fish"
+            )
+            mouth_x = cx - FW   # bubbles rise from here
+
+        else:          # facing RIGHT — tail on left, mouth on right
+            # Tail
+            c.create_polygon(
+                cx - FW, FY - FH,
+                cx - FW - 12, FY + waggle,
+                cx - FW, FY + FH,
+                fill="#6c83f7", outline="", tags="fish"
+            )
+            # Body
+            c.create_oval(
+                cx - FW, FY - FH, cx + FW, FY + FH,
+                fill="#6c83f7", outline="", tags="fish"
+            )
+            # Pectoral fin
+            c.create_polygon(
+                cx + 2, FY + 4,
+                cx - 7, FY + FH,
+                cx + 7, FY + FH,
+                fill="#8a9af9", outline="", tags="fish"
+            )
+            # Eye near mouth (right side)
+            c.create_oval(
+                cx + FW - 8, FY - 3,
+                cx + FW - 3, FY + 2,
+                fill="#0f0f1a", outline="", tags="fish"
+            )
+            mouth_x = cx + FW   # bubbles rise from here
+
+        # ── Draw bubbles (cluster of 3 rising from mouth) ─────────────────
+        for i, offset in enumerate(OFFSETS):
+            phase = ((s + offset) % CYCLE) / CYCLE
+            # Scatter bubbles a little horizontally around the mouth
+            bx = mouth_x + (i - 1) * 5   # –5, 0, +5 px spread
+            by = FY - int(phase * RISE)
+            r  = 2 + int(phase * 7)
             blue  = min(255, 0x6c + int(phase * 140))
             green = min(255, 0x83 + int(phase * 80))
             color = f"#{0x6c:02x}{green:02x}{blue:02x}"
-            c.create_oval(
-                x - r, y - r, x + r, y + r,
-                fill=color, outline="", tags="bubble"
-            )
+            c.create_oval(bx - r, by - r, bx + r, by + r,
+                          fill=color, outline="", tags="bubble")
 
         self._anim_step += 1
         self._anim_id = self.after(55, self._tick)
@@ -277,7 +457,7 @@ class InstallerGUI(tk.Tk):
     def _spawn_and_linger(self):
         self._stop_animation()
         self._canvas.delete("bubble")
-        # Draw a little celebration — full bar
+        self._canvas.delete("fish")
         self._progress.set(100)
         env = os.environ.copy()
         env.pop("TCL_LIBRARY", None)
@@ -336,15 +516,13 @@ class InstallerGUI(tk.Tk):
             _log("Python 3.12 not found — asking user")
             wants_install = messagebox.askyesno(
                 t("LAUNCHER_PYTHON_REQUIRED_TITLE"),
-                "KoKoFish requires Python 3.12 which was not found on your system.\n\n"
-                "Would you like KoKoFish to download and install Python 3.12 for you right now?\n"
-                "(It installs cleanly to your local user folder without requiring Admin privileges)"
+                t("LAUNCHER_PYTHON_REQUIRED_MSG")
             )
             if not wants_install:
                 _log("User declined — aborting")
                 messagebox.showerror(
                     t("LAUNCHER_SETUP_FAILED_TITLE"),
-                    "Python 3.12 is required. Please install it from python.org and try again."
+                    t("LAUNCHER_PYTHON_REQUIRED_ABORT")
                 )
                 self.destroy()
                 return
@@ -363,7 +541,7 @@ class InstallerGUI(tk.Tk):
                             tempfile.gettempdir(), "python-3.12.9-amd64-kokofish.exe"
                         )
                         _log(f"Downloading Python installer to: {installer_path}")
-                        self.update_status("Downloading Python 3.12... (This may take a minute)")
+                        self.update_status(t("LAUNCHER_PYTHON_DOWNLOADING"))
                         try:
                             urllib.request.urlretrieve(
                                 "https://www.python.org/ftp/python/3.12.9/python-3.12.9-amd64.exe",
@@ -371,11 +549,11 @@ class InstallerGUI(tk.Tk):
                             )
                             _log("Download complete")
                         except Exception as e:
-                            raise Exception(f"Failed to download Python installer: {e}")
+                            raise Exception(f"{t('LAUNCHER_PYTHON_DOWNLOADING')}: {e}")
                     else:
-                        self.update_status("Installing Python 3.12...")
+                        self.update_status(t("LAUNCHER_PYTHON_INSTALLING_STATUS"))
 
-                    self.update_status("Installing Python in the background...")
+                    self.update_status(t("LAUNCHER_PYTHON_INSTALLING_BG"))
                     _log("Running Python installer...")
                     subprocess.run(
                         [installer_path,
@@ -386,7 +564,7 @@ class InstallerGUI(tk.Tk):
                     _log("Python installer finished")
                     system_python = _find_valid_python()
                     if not system_python:
-                        raise Exception("Automated Python installation failed. Please install manually.")
+                        raise Exception(t("LAUNCHER_PYTHON_INSTALL_FAILED"))
 
                 # ── Create required folders ────────────────────────────────
                 for _folder in [
@@ -401,9 +579,9 @@ class InstallerGUI(tk.Tk):
                         _log(f"Created folder: {_folder}")
 
                 # ── Step 1: venv ───────────────────────────────────────────
-                _log(f"Step 1/5: venv (exists={os.path.exists(VENV_DIR)})")
+                _log(f"Step 1/6: venv (exists={os.path.exists(VENV_DIR)})")
                 self.update_status(t("LAUNCHER_STEP_VENV"))
-                self.update_progress(0, "Setting up virtual environment...")
+                self.update_progress(0, t("LAUNCHER_STEP_VENV_DETAIL"))
                 if not os.path.exists(VENV_DIR):
                     result = _run_logged("create venv",
                         [system_python, "-m", "venv", VENV_DIR],
@@ -414,9 +592,9 @@ class InstallerGUI(tk.Tk):
                 self.update_progress(self._P_VENV)
 
                 # ── Step 2: upgrade pip ────────────────────────────────────
-                _log("Step 2/5: upgrade pip")
+                _log("Step 2/6: upgrade pip")
                 self.update_status(t("LAUNCHER_STEP_PIP"))
-                self.update_progress(self._P_VENV, "Upgrading pip...")
+                self.update_progress(self._P_VENV, t("LAUNCHER_STEP_PIP_DETAIL"))
                 _run_logged("upgrade pip",
                     [PIP_EXE, "install", "--upgrade", "pip"],
                     check=False, creationflags=subprocess.CREATE_NO_WINDOW,
@@ -424,9 +602,9 @@ class InstallerGUI(tk.Tk):
                 self.update_progress(self._P_PIP)
 
                 # ── Step 3: PyTorch CPU ────────────────────────────────────
-                _log("Step 3/5: PyTorch CPU")
+                _log("Step 3/6: PyTorch CPU")
                 self.update_status(t("LAUNCHER_STEP_PYTORCH"))
-                self.update_progress(self._P_PIP, "Installing PyTorch (CPU)...")
+                self.update_progress(self._P_PIP, t("LAUNCHER_STEP_PYTORCH_DETAIL"))
                 torch_local = _run_logged("torch local wheels",
                     [PIP_EXE, "install", "--find-links", PACKAGES_DIR,
                      "--timeout", "120", "torch", "torchaudio"],
@@ -435,7 +613,7 @@ class InstallerGUI(tk.Tk):
                 if torch_local.returncode != 0:
                     _log("Local torch failed — trying PyPI CPU index")
                     self.update_status(t("LAUNCHER_STEP_PYTORCH_DL"))
-                    self.update_progress(self._P_PIP, "Downloading PyTorch from pytorch.org...")
+                    self.update_progress(self._P_PIP, t("LAUNCHER_STEP_PYTORCH_DL_DETAIL"))
                     _run_logged("torch PyPI CPU",
                         [PIP_EXE, "install", "--timeout", "120",
                          "torch", "torchaudio",
@@ -445,9 +623,9 @@ class InstallerGUI(tk.Tk):
                 self.update_progress(self._P_TORCH)
 
                 # ── Step 4: llama-cpp-python (wheel only) ──────────────────
-                _log("Step 4/5: llama-cpp-python (wheel only)")
-                self.update_status("Installing AI components (4/5)...")
-                self.update_progress(self._P_TORCH, "Installing llama-cpp-python...")
+                _log("Step 4/6: llama-cpp-python (wheel only)")
+                self.update_status(t("LAUNCHER_STEP_LLAMA"))
+                self.update_progress(self._P_TORCH, t("LAUNCHER_STEP_LLAMA_DETAIL"))
                 llama_result = _run_logged("llama-cpp-python (wheel only)",
                     [PIP_EXE, "install",
                      "--only-binary=llama_cpp_python",
@@ -458,52 +636,112 @@ class InstallerGUI(tk.Tk):
                     check=False, creationflags=subprocess.CREATE_NO_WINDOW,
                 )
                 if llama_result.returncode != 0:
-                    raise Exception(
-                        "Could not install llama-cpp-python — no prebuilt wheel found for your Python version.\n"
-                        "Please check https://github.com/abetlen/llama-cpp-python/releases"
-                    )
+                    raise Exception(t("LAUNCHER_LLAMA_FAILED"))
                 self.update_progress(self._P_LLAMA)
 
                 # ── Step 5: requirements.txt with per-package progress ─────
                 req_file = os.path.join(APP_DIR, "requirements.txt")
-                _log(f"Step 5/5: requirements.txt (exists={os.path.exists(req_file)})")
+                _log(f"Step 5/6: requirements.txt (exists={os.path.exists(req_file)})")
                 self.update_status(t("LAUNCHER_STEP_COMPONENTS"))
 
-                total_pkgs   = _count_requirements(req_file)
-                done_pkgs    = 0
-                range_pct    = self._P_REQ_END - self._P_LLAMA  # remaining %
+                total_pkgs = _count_requirements(req_file)
+                done_pkgs  = 0
+                range_pct  = self._P_REQ_END - self._P_LLAMA
 
                 def _on_pip_line(line: str):
                     nonlocal done_pkgs
-                    # Detect package start
-                    if line.startswith("Collecting ") or line.startswith("Requirement already satisfied:"):
+                    if line.startswith("Collecting "):
                         pkg = line.split()[1].split("==")[0].split(">=")[0].split("[")[0]
-                        if line.startswith("Collecting "):
-                            done_pkgs += 1
-                        pct = self._P_LLAMA + (done_pkgs / total_pkgs) * range_pct
-                        label = f"{'Installing' if line.startswith('Collecting') else 'Already installed'}: {pkg}"
+                        done_pkgs += 1
+                        pct   = self._P_LLAMA + (done_pkgs / total_pkgs) * range_pct
+                        label = t("LAUNCHER_PKG_INSTALLING", pkg=pkg)
                         self.update_progress(pct, label)
+                    elif line.startswith("Requirement already satisfied:"):
+                        pkg = line.split()[3].split("==")[0].split(">=")[0].split("[")[0]
+                        pct = self._P_LLAMA + (done_pkgs / total_pkgs) * range_pct
+                        self.update_progress(pct, t("LAUNCHER_PKG_ALREADY", pkg=pkg))
 
                 proc = _run_with_progress(
                     "requirements.txt",
                     [PIP_EXE, "install", "--find-links", PACKAGES_DIR,
                      "--timeout", "120", "-r", req_file],
                     on_line=_on_pip_line,
-                    check=False, creationflags=subprocess.CREATE_NO_WINDOW,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
                 )
 
                 if proc.returncode != 0:
                     raise Exception(
-                        "Package installation failed.\n"
-                        f"Check your internet connection and try again.\n\n"
-                        f"Full details saved to:\n{INSTALL_LOG}"
+                        t("LAUNCHER_PACKAGES_FAILED", log=INSTALL_LOG)
                     )
+
+                self.update_progress(self._P_REQ_END, "")
+
+                # ── Step 6: Kokoro voice model files ──────────────────────
+                _log("Step 6/6: Kokoro model files")
+                self.update_status(t("LAUNCHER_STEP_KOKORO"))
+
+                kokoro_dir   = os.path.join(APP_DIR, "kokoro_models")
+                onnx_path    = os.path.join(kokoro_dir, "kokoro-v1.0.int8.onnx")
+                voices_path  = os.path.join(kokoro_dir, "voices-v1.0.bin")
+                os.makedirs(kokoro_dir, exist_ok=True)
+
+                def _file_ok(p, min_mb):
+                    return os.path.isfile(p) and os.path.getsize(p) > min_mb * 1_000_000
+
+                if _file_ok(onnx_path, 50) and _file_ok(voices_path, 5):
+                    _log("Kokoro model files already present — skipping")
+                    self.update_progress(self._P_KOKORO_END, t("LAUNCHER_KOKORO_SKIP"))
+                else:
+                    _log("Kokoro model files missing — downloading via huggingface_hub")
+                    # Use the venv's console python (python.exe, not pythonw.exe)
+                    # so stdout can be captured for progress reporting.
+                    venv_py_console = os.path.join(VENV_DIR, "Scripts", "python.exe")
+                    if not os.path.isfile(venv_py_console):
+                        venv_py_console = PYTHON_EXE  # fallback
+
+                    # APP_DIR path — escape backslashes for the inline script
+                    _adir = APP_DIR.replace("\\", "\\\\")
+                    inline = (
+                        "import sys; sys.path.insert(0, r'" + APP_DIR + "'); "
+                        "from utils import setup_kokoro, is_kokoro_ready; "
+                        "ok = is_kokoro_ready() or setup_kokoro("
+                        "    lambda msg, frac: print(f'PROG:{msg}|{frac:.3f}', flush=True)"
+                        "); "
+                        "sys.exit(0 if ok else 1)"
+                    )
+
+                    _kok_range = self._P_KOKORO_END - self._P_REQ_END
+
+                    def _on_kokoro_line(line: str):
+                        if line.startswith("PROG:"):
+                            parts = line[5:].rsplit("|", 1)
+                            msg  = parts[0].strip()
+                            try:
+                                frac = float(parts[1])
+                            except Exception:
+                                frac = 0.0
+                            pct = self._P_REQ_END + frac * _kok_range
+                            self.update_progress(pct, msg)
+
+                    kok_result = _run_with_progress(
+                        "kokoro model download",
+                        [venv_py_console, "-c", inline],
+                        on_line=_on_kokoro_line,
+                        cwd=APP_DIR,
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
+
+                    if kok_result.returncode != 0:
+                        _log("WARNING: Kokoro model download failed — app will prompt on first use")
+                        self.update_progress(self._P_KOKORO_END, t("LAUNCHER_KOKORO_DL_FAILED"))
+                    else:
+                        _log("Kokoro model files ready")
+                        self.update_progress(self._P_KOKORO_END, t("LAUNCHER_KOKORO_SKIP"))
 
                 _log("=== Installation completed successfully ===")
                 with open(SETUP_MARKER, "w") as f:
                     f.write("setup_complete")
 
-                self.update_progress(self._P_REQ_END, "")
                 self.update_status(t("LAUNCHER_STEP_COMPLETE"))
                 self.after(1000, self._spawn_and_linger)
 
@@ -513,21 +751,121 @@ class InstallerGUI(tk.Tk):
                 self.update_status(t("LAUNCHER_SETUP_FAILED_TITLE"))
                 messagebox.showerror(
                     t("LAUNCHER_SETUP_FAILED_TITLE"),
-                    f"Setup failed:\n{e}\n\nFull log:\n{INSTALL_LOG}"
+                    t("LAUNCHER_SETUP_FAILED_MSG", error=e, log=INSTALL_LOG)
                 )
                 self.after(2000, self.destroy)
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    # ── Kokoro-only repair (for existing installs missing model files) ─────
+    def run_kokoro_only(self):
+        """
+        Download Kokoro model files only — used when venv is already set up
+        but the model files are missing (e.g. upgrade from pre-step-6 install).
+        """
+        def _worker():
+            try:
+                kokoro_dir  = os.path.join(APP_DIR, "kokoro_models")
+                onnx_path   = os.path.join(kokoro_dir, "kokoro-v1.0.int8.onnx")
+                voices_path = os.path.join(kokoro_dir, "voices-v1.0.bin")
+                os.makedirs(kokoro_dir, exist_ok=True)
 
+                def _file_ok(p, min_mb):
+                    return os.path.isfile(p) and os.path.getsize(p) > min_mb * 1_000_000
+
+                if _file_ok(onnx_path, 50) and _file_ok(voices_path, 5):
+                    _log("run_kokoro_only: files already present")
+                    self.update_progress(100, t("LAUNCHER_KOKORO_SKIP"))
+                    self.after(800, self._spawn_and_linger)
+                    return
+
+                _log("run_kokoro_only: downloading missing Kokoro model files")
+                self.update_status(t("LAUNCHER_STEP_KOKORO"))
+                self.update_progress(0, "")
+
+                venv_py_console = os.path.join(VENV_DIR, "Scripts", "python.exe")
+                if not os.path.isfile(venv_py_console):
+                    venv_py_console = PYTHON_EXE
+
+                inline = (
+                    "import sys; sys.path.insert(0, r'" + APP_DIR + "'); "
+                    "from utils import setup_kokoro, is_kokoro_ready; "
+                    "ok = is_kokoro_ready() or setup_kokoro("
+                    "    lambda msg, frac: print(f'PROG:{msg}|{frac:.3f}', flush=True)"
+                    "); "
+                    "sys.exit(0 if ok else 1)"
+                )
+
+                def _on_line(line: str):
+                    if line.startswith("PROG:"):
+                        parts = line[5:].rsplit("|", 1)
+                        msg  = parts[0].strip()
+                        try:
+                            frac = float(parts[1])
+                        except Exception:
+                            frac = 0.0
+                        self.update_progress(frac * 99, msg)
+
+                result = _run_with_progress(
+                    "kokoro model download (repair)",
+                    [venv_py_console, "-c", inline],
+                    on_line=_on_line,
+                    cwd=APP_DIR,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+
+                if result.returncode != 0:
+                    _log("run_kokoro_only: download failed — launching anyway")
+                    self.update_progress(99, t("LAUNCHER_KOKORO_DL_FAILED"))
+                else:
+                    _log("run_kokoro_only: download complete")
+                    self.update_progress(99, t("LAUNCHER_KOKORO_SKIP"))
+
+                self.update_status(t("LAUNCHER_STEP_COMPLETE"))
+                self.after(1000, self._spawn_and_linger)
+
+            except Exception as e:
+                _log(f"run_kokoro_only EXCEPTION: {e}")
+                # Non-fatal — just launch the app anyway
+                self.after(0, launch_main_app)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+
+# ===========================================================================
+# Entry point
+# ===========================================================================
 if __name__ == "__main__":
+    # Load whatever language was previously saved (default: English)
     load_language()
+
     _log(f"__main__: setup_done={os.path.exists(SETUP_MARKER)}  venv_python={os.path.exists(PYTHON_EXE)}")
+
     if os.path.exists(SETUP_MARKER) and os.path.exists(PYTHON_EXE):
-        _log("Already set up — launching main app directly")
-        launch_main_app()
+        # Venv is ready — but check whether Kokoro model files exist too.
+        _kokoro_dir    = os.path.join(APP_DIR, "kokoro_models")
+        _onnx_path     = os.path.join(_kokoro_dir, "kokoro-v1.0.int8.onnx")
+        _voices_path   = os.path.join(_kokoro_dir, "voices-v1.0.bin")
+        _onnx_ok   = os.path.isfile(_onnx_path)   and os.path.getsize(_onnx_path)   > 50 * 1_000_000
+        _voices_ok = os.path.isfile(_voices_path) and os.path.getsize(_voices_path) >  5 * 1_000_000
+        _log(f"Kokoro check: onnx_ok={_onnx_ok}  voices_ok={_voices_ok}")
+
+        if _onnx_ok and _voices_ok:
+            _log("All files present — launching main app directly")
+            launch_main_app()
+        else:
+            # Venv exists but Kokoro models are missing (e.g. upgrade from
+            # a pre-step-6 install, or a partial first run).
+            _log("Kokoro models missing — opening installer for Kokoro-only repair")
+            gui = InstallerGUI()
+            gui.after(500, gui.run_kokoro_only)
+            gui.mainloop()
     else:
-        _log("First run — opening installer GUI")
+        # First run — show language picker, then full installer
+        _log("First run — showing language picker")
+        LanguagePickerDialog.pick()
+        # Language is now saved and active; open the installer
+        _log("Language selected — opening installer GUI")
         gui = InstallerGUI()
         gui.after(1000, gui.run_setup)
         gui.mainloop()
