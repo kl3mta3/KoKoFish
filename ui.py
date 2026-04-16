@@ -45,6 +45,74 @@ import time
 logger = logging.getLogger("KoKoFish.ui")
 
 # ---------------------------------------------------------------------------
+# Dropdown translation maps — (english_value, translation_key) pairs.
+# Used to display translated names in OptionMenus while keeping English
+# values for API calls and settings persistence.
+# ---------------------------------------------------------------------------
+_LANG_KEY_MAP = [
+    ("Japanese",             "PROMPT_LAB_TRANSLATE_LANG_JAPANESE"),
+    ("Mandarin Chinese",     "PROMPT_LAB_TRANSLATE_LANG_MANDARIN"),
+    ("Spanish",              "PROMPT_LAB_TRANSLATE_LANG_SPANISH"),
+    ("French",               "PROMPT_LAB_TRANSLATE_LANG_FRENCH"),
+    ("German",               "PROMPT_LAB_TRANSLATE_LANG_GERMAN"),
+    ("Hindi",                "PROMPT_LAB_TRANSLATE_LANG_HINDI"),
+    ("Italian",              "PROMPT_LAB_TRANSLATE_LANG_ITALIAN"),
+    ("Brazilian Portuguese", "PROMPT_LAB_TRANSLATE_LANG_PORTUGUESE"),
+    ("Korean",               "PROMPT_LAB_TRANSLATE_LANG_KOREAN"),
+    ("Russian",              "PROMPT_LAB_TRANSLATE_LANG_RUSSIAN"),
+    ("Arabic",               "PROMPT_LAB_TRANSLATE_LANG_ARABIC"),
+    ("English",              "PROMPT_LAB_TRANSLATE_LANG_ENGLISH"),
+]
+_TONE_KEY_MAP = [
+    ("Natural",      "PROMPT_LAB_TRANSLATE_TONE_NATURAL"),
+    ("Formal",       "PROMPT_LAB_TRANSLATE_TONE_FORMAL"),
+    ("Casual",       "PROMPT_LAB_TRANSLATE_TONE_CASUAL"),
+    ("Professional", "PROMPT_LAB_TRANSLATE_TONE_PROFESSIONAL"),
+]
+_PRESET_KEY_MAP = [
+    ("General Assistant",  "PROMPT_LAB_PRESET_GENERAL"),
+    ("Brainstorm Partner", "PROMPT_LAB_PRESET_BRAINSTORM"),
+    ("Writing Helper",     "PROMPT_LAB_PRESET_WRITING"),
+    ("Story Ideas",        "PROMPT_LAB_PRESET_STORY"),
+    ("Dialogue Writer",    "PROMPT_LAB_PRESET_DIALOGUE"),
+    ("Script / Podcast",   "PROMPT_LAB_PRESET_SCRIPT"),
+    ("Summariser",         "PROMPT_LAB_PRESET_SUMMARISE"),
+    ("Dark Fiction",       "PROMPT_LAB_PRESET_DARK"),
+    ("Custom",             "PROMPT_LAB_PRESET_CUSTOM"),
+]
+_CONTENT_STYLE_KEY_MAP = [
+    ("None",               "SPEECH_LAB_CONTENT_STYLE_NONE"),
+    ("Formal",             "SPEECH_LAB_CONTENT_STYLE_FORMAL"),
+    ("Casual",             "SPEECH_LAB_CONTENT_STYLE_CASUAL"),
+    ("Scientific",         "SPEECH_LAB_CONTENT_STYLE_SCIENTIFIC"),
+    ("Professional",       "SPEECH_LAB_CONTENT_STYLE_PROFESSIONAL"),
+    ("Story — Fiction",    "SPEECH_LAB_CONTENT_STYLE_STORY_FICTION"),
+    ("Story — Non-Fiction","SPEECH_LAB_CONTENT_STYLE_STORY_NONFICTION"),
+    ("Podcast",            "SPEECH_LAB_CONTENT_STYLE_PODCAST"),
+]
+
+
+def _display_names(key_map):
+    """Return list of translated display names for a key_map."""
+    return [t(tk) for _, tk in key_map]
+
+
+def _en_from_display(key_map, display_name):
+    """Map a translated display name back to its English value."""
+    for en, tk in key_map:
+        if t(tk) == display_name:
+            return en
+    return display_name  # fallback: return as-is (handles English already)
+
+
+def _display_from_en(key_map, en_name):
+    """Map an English value to its translated display name."""
+    for en, tk in key_map:
+        if en == en_name:
+            return t(tk)
+    return en_name  # fallback
+
+# ---------------------------------------------------------------------------
 # App paths
 # ---------------------------------------------------------------------------
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -162,7 +230,7 @@ class KoKoFishUI:
 
         # Settings button — top right
         self._settings_window = None
-        ctk.CTkButton(
+        self._settings_btn = ctk.CTkButton(
             header,
             text=t("SETTINGS_TAB_LABEL"),
             width=110,
@@ -173,7 +241,8 @@ class KoKoFishUI:
             text_color=COLORS["text_primary"],
             corner_radius=8,
             command=self._open_settings_window,
-        ).pack(side="right", pady=10)
+        )
+        self._settings_btn.pack(side="right", pady=10)
 
         # Language selector — to the left of Settings button
         from lang import get_languages, get_current_language
@@ -275,10 +344,36 @@ class KoKoFishUI:
 
     def _rebuild_all_tabs(self):
         """Destroy and recreate the entire tabview so tab names translate too."""
-        # Destroy the whole tabview (takes all tab content with it)
+        # ── Remember which tab was active so we can restore it ──────────────
+        # Tab order is fixed: 0=Speech, 1=Voice, 2=Text, 3=File, 4=Listen, 5=Script, 6=Prompt
+        _TAB_KEYS = [
+            "MAIN_TAB_SPEECH_LAB", "MAIN_TAB_VOICE_LAB", "MAIN_TAB_TEXT_LAB",
+            "MAIN_TAB_FILE_LAB",   "MAIN_TAB_LISTEN_LAB", "MAIN_TAB_SCRIPT_LAB",
+            "MAIN_TAB_PROMPT_LAB",
+        ]
+        _saved_tab_idx = 0
+        try:
+            current_name = self.tabview.get()
+            # Map current (old-language) tab name to its index by position
+            for i, key in enumerate(_TAB_KEYS):
+                if self.tabview.tab(t(key)):
+                    pass  # will raise if not found — we rely on index order instead
+            # Simpler: find index by iterating the actual tab list
+            _all_tabs = self.tabview._tab_dict  # internal CTkTabview dict
+            for i, name in enumerate(_all_tabs):
+                if name == current_name:
+                    _saved_tab_idx = i
+                    break
+        except Exception:
+            _saved_tab_idx = 0
+
+        # Update the Settings button label while we're here
+        if hasattr(self, "_settings_btn"):
+            self._settings_btn.configure(text=t("SETTINGS_TAB_LABEL"))
+
+        # ── Destroy and rebuild ──────────────────────────────────────────────
         self.tabview.destroy()
 
-        # Recreate tabview
         self.tabview = ctk.CTkTabview(
             self.root,
             fg_color=COLORS["bg_card"],
@@ -312,6 +407,13 @@ class KoKoFishUI:
 
         # Re-bind tab change for memory saver
         self.tabview.configure(command=self._on_tab_changed)
+
+        # ── Restore the previously active tab ───────────────────────────────
+        try:
+            target_tab_name = t(_TAB_KEYS[_saved_tab_idx])
+            self.tabview.set(target_tab_name)
+        except Exception:
+            pass
 
     # ==================================================================
     # Tooltip helper
@@ -452,8 +554,8 @@ class KoKoFishUI:
         self.speed_slider.set(self.settings.speed)
         self.speed_slider.configure(command=self._on_speed_change)
         self.speed_slider.pack()
-        self._make_tooltip(self.speed_label,  "Playback speed — 1.0x is normal, 0.5x is half speed, 2.0x is double")
-        self._make_tooltip(self.speed_slider, "Playback speed — 1.0x is normal, 0.5x is half speed, 2.0x is double")
+        self._make_tooltip(self.speed_label,  t("SPEECH_LAB_TOOLTIP_SPEED"))
+        self._make_tooltip(self.speed_slider, t("SPEECH_LAB_TOOLTIP_SPEED"))
 
         # Volume slider
         vol_frame = ctk.CTkFrame(controls, fg_color="transparent")
@@ -479,8 +581,8 @@ class KoKoFishUI:
         self.vol_slider.set(self.settings.volume)
         self.vol_slider.configure(command=self._on_volume_change)
         self.vol_slider.pack()
-        self._make_tooltip(self.vol_label,  "Playback volume — audio is peak-normalized before this is applied")
-        self._make_tooltip(self.vol_slider, "Playback volume — audio is peak-normalized before this is applied")
+        self._make_tooltip(self.vol_label,  t("SPEECH_LAB_TOOLTIP_VOLUME"))
+        self._make_tooltip(self.vol_slider, t("SPEECH_LAB_TOOLTIP_VOLUME"))
 
         # Cadence slider
         cad_frame = ctk.CTkFrame(controls, fg_color="transparent")
@@ -506,8 +608,8 @@ class KoKoFishUI:
         self.cad_slider.set(self.settings.cadence)
         self.cad_slider.configure(command=self._on_cadence_change)
         self.cad_slider.pack()
-        self._make_tooltip(self.cad_label,  "Cadence — adds a brief pause between decoded speech chunks (Fish Speech only). 0% = no pause, 100% = ~600 ms gap. Has no effect on Kokoro.")
-        self._make_tooltip(self.cad_slider, "Cadence — adds a brief pause between decoded speech chunks (Fish Speech only). 0% = no pause, 100% = ~600 ms gap. Has no effect on Kokoro.")
+        self._make_tooltip(self.cad_label,  t("SPEECH_LAB_TOOLTIP_CADENCE"))
+        self._make_tooltip(self.cad_slider, t("SPEECH_LAB_TOOLTIP_CADENCE"))
 
         # ── Content Style dropdown ────────────────────────────────────────
         style_frame = ctk.CTkFrame(controls, fg_color="transparent")
@@ -518,21 +620,17 @@ class KoKoFishUI:
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_secondary"],
         ).pack(anchor="w")
-        _CONTENT_STYLES = [
-            "None", "Formal", "Casual", "Scientific",
-            "Professional", "Story — Fiction",
-            "Story — Non-Fiction", "Podcast",
-        ]
+        _CONTENT_STYLES_DISPLAY = _display_names(_CONTENT_STYLE_KEY_MAP)
         saved_style = getattr(self.settings, "content_style", "None")
-        if saved_style not in _CONTENT_STYLES:
-            saved_style = "None"
-        self._content_style_var = ctk.StringVar(value=saved_style)
+        # saved_style is stored as English; convert to display name
+        saved_style_display = _display_from_en(_CONTENT_STYLE_KEY_MAP, saved_style)
+        self._content_style_var = ctk.StringVar(value=saved_style_display)
         def _on_style_change(v):
-            self.settings.content_style = v
+            self.settings.content_style = _en_from_display(_CONTENT_STYLE_KEY_MAP, v)
         ctk.CTkOptionMenu(
             style_frame,
             variable=self._content_style_var,
-            values=_CONTENT_STYLES,
+            values=_CONTENT_STYLES_DISPLAY,
             width=160,
             height=26,
             fg_color=COLORS["bg_input"],
@@ -543,10 +641,7 @@ class KoKoFishUI:
             font=(FONT_FAMILY, 11),
             command=_on_style_change,
         ).pack(anchor="w")
-        self._make_tooltip(
-            style_frame,
-            "Content style hints for AI Assisted Flow and Translation — tells the model what kind of text this is",
-        )
+        self._make_tooltip(style_frame, t("SPEECH_LAB_CONTENT_STYLE_TOOLTIP"))
 
         # ── Playlist header row ──────────────────────────────────────────
         playlist_header = ctk.CTkFrame(tab, fg_color="transparent")
@@ -602,7 +697,7 @@ class KoKoFishUI:
             command=self._tts_play,
         )
         self.btn_play.pack(side="right", padx=(4, 0))
-        self._make_tooltip(self.btn_play, "Convert and play all items in the playlist")
+        self._make_tooltip(self.btn_play, t("SPEECH_LAB_TOOLTIP_PLAY_ALL"))
 
         # Work Silent + Auto Save toggles
         self.silent_mode_var = ctk.BooleanVar(value=getattr(self.settings, 'silent_mode', False))
@@ -684,7 +779,7 @@ class KoKoFishUI:
             command=self._tts_selected, width=140, **_big,
         )
         _btn_convert.pack(side="left", padx=(0, 2))
-        self._make_tooltip(_btn_convert, "Convert selected items to speech")
+        self._make_tooltip(_btn_convert, t("SPEECH_LAB_TOOLTIP_CONVERT_SELECTED"))
 
         self.btn_pause = ctk.CTkButton(
             sel_bar, text="⏸",
@@ -692,7 +787,7 @@ class KoKoFishUI:
             text_color="#1a1a2e",
             command=self._tts_pause, **_mini,
         )
-        self._make_tooltip(self.btn_pause, "Pause conversion")
+        self._make_tooltip(self.btn_pause, t("SPEECH_LAB_TOOLTIP_PAUSE_CONV"))
         # Not packed yet — shown when conversion starts
 
         self.btn_stop = ctk.CTkButton(
@@ -700,7 +795,7 @@ class KoKoFishUI:
             fg_color=COLORS["danger"], hover_color="#d43d62",
             command=self._tts_stop, **_mini,
         )
-        self._make_tooltip(self.btn_stop, "Stop / cancel conversion")
+        self._make_tooltip(self.btn_stop, t("SPEECH_LAB_TOOLTIP_STOP_CONV"))
         # Not packed yet — shown when conversion starts
 
         # Play Selected + its Pause / Stop (pause/stop hidden until playing)
@@ -710,7 +805,7 @@ class KoKoFishUI:
             command=self._play_selected, width=140, **_big,
         )
         _btn_play_sel.pack(side="left", padx=(0, 2))
-        self._make_tooltip(_btn_play_sel, "Play audio for selected items")
+        self._make_tooltip(_btn_play_sel, t("SPEECH_LAB_TOOLTIP_PLAY_SELECTED"))
 
         self.btn_play_pause = ctk.CTkButton(
             sel_bar, text="⏸",
@@ -718,7 +813,7 @@ class KoKoFishUI:
             text_color="#1a1a2e",
             command=self._stop_preview, **_mini,
         )
-        self._make_tooltip(self.btn_play_pause, "Pause playback")
+        self._make_tooltip(self.btn_play_pause, t("SPEECH_LAB_TOOLTIP_PAUSE_PB"))
         # Not packed yet
 
         self.btn_play_stop = ctk.CTkButton(
@@ -726,7 +821,7 @@ class KoKoFishUI:
             fg_color=COLORS["danger"], hover_color="#d43d62",
             command=self._stop_preview, **_mini,
         )
-        self._make_tooltip(self.btn_play_stop, "Stop playback")
+        self._make_tooltip(self.btn_play_stop, t("SPEECH_LAB_TOOLTIP_STOP_PB"))
         # Not packed yet
 
         # Store sel_bar reference so we can re-pack buttons with correct order
@@ -741,7 +836,7 @@ class KoKoFishUI:
             command=self._tts_save_mp3, width=140, **_big,
         )
         self.btn_save_mp3.pack(side="left", padx=(0, 4))
-        self._make_tooltip(self.btn_save_mp3, "Export selected items as individual MP3 files")
+        self._make_tooltip(self.btn_save_mp3, t("SPEECH_LAB_TOOLTIP_EXPORT_MP3"))
 
         # Export Audiobook
         _btn_ab = ctk.CTkButton(
@@ -750,7 +845,7 @@ class KoKoFishUI:
             command=self._tts_export_audiobook, width=120, **_big,
         )
         _btn_ab.pack(side="left", padx=(0, 16))
-        self._make_tooltip(_btn_ab, "Merge selected items into one M4B audiobook with chapter marks")
+        self._make_tooltip(_btn_ab, t("SPEECH_LAB_TOOLTIP_AUDIOBOOK"))
 
         # Selection helpers
         _btn = ctk.CTkButton(
@@ -760,7 +855,7 @@ class KoKoFishUI:
             command=self._select_all, width=60, **_util,
         )
         _btn.pack(side="left", padx=(0, 4))
-        self._make_tooltip(_btn, "Select all items")
+        self._make_tooltip(_btn, t("SPEECH_LAB_TOOLTIP_SELECT_ALL"))
 
         _btn = ctk.CTkButton(
             sel_bar, text=t("SPEECH_LAB_BTN_SELECT_NONE"),
@@ -769,7 +864,7 @@ class KoKoFishUI:
             command=self._deselect_all, width=60, **_util,
         )
         _btn.pack(side="left", padx=(0, 4))
-        self._make_tooltip(_btn, "Deselect all items")
+        self._make_tooltip(_btn, t("SPEECH_LAB_TOOLTIP_DESELECT_ALL"))
 
         # Clear Selected — far right
         _btn = ctk.CTkButton(
@@ -779,7 +874,7 @@ class KoKoFishUI:
             command=self._tts_clear_playlist, width=120, **_util,
         )
         _btn.pack(side="right")
-        self._make_tooltip(_btn, "Remove selected items from the playlist")
+        self._make_tooltip(_btn, t("SPEECH_LAB_TOOLTIP_REMOVE_SEL"))
 
     # ==================================================================
     # TAB 2: Transcribe (STT)
@@ -902,7 +997,6 @@ class KoKoFishUI:
         ).pack()
 
         # Translate controls (next to timestamps)
-        from tag_suggester import TRANSLATE_LANGUAGES
         _tr_frame = ctk.CTkFrame(stt_controls, fg_color="transparent")
         _tr_frame.pack(side="left", padx=(20, 0))
         ctk.CTkLabel(
@@ -913,11 +1007,12 @@ class KoKoFishUI:
         ).pack(anchor="w")
         _tr_inner = ctk.CTkFrame(_tr_frame, fg_color="transparent")
         _tr_inner.pack()
-        self._stt_translate_lang_var = ctk.StringVar(value=TRANSLATE_LANGUAGES[0])
+        _stt_lang_display = _display_names(_LANG_KEY_MAP)
+        self._stt_translate_lang_var = ctk.StringVar(value=_stt_lang_display[0])
         ctk.CTkOptionMenu(
             _tr_inner,
             variable=self._stt_translate_lang_var,
-            values=TRANSLATE_LANGUAGES,
+            values=_stt_lang_display,
             width=130, height=26,
             fg_color=COLORS["bg_input"],
             button_color="#e76f51",
@@ -1198,7 +1293,7 @@ class KoKoFishUI:
         _txt_status.pack(anchor="w", padx=14, pady=(0, 10))
 
         # ── AUDIO CONVERSION ───────────────────────────────────────────
-        aud_card = _card(scroll, "Audio Conversion", "🎵")
+        aud_card = _card(scroll, t("FILE_LAB_AUDIO_HEADER"), "🎵")
 
         _AUDIO_FORMATS = {
             "MP3":  (".mp3",  [("MP3 audio",          "*.mp3")],  "libmp3lame", "192k"),
@@ -1209,11 +1304,11 @@ class KoKoFishUI:
         }
         _AUDIO_READ_EXT = "*.mp3 *.wav *.m4b *.m4a *.mp4 *.flac *.ogg *.aac *.weba *.webm *.opus *.wma *.amr"
         _AUDIO_NOTE = {
-            "M4B":  "Chapters preserved if source has them",
-            "MP4":  "Chapters preserved if source has them",
-            "MP3":  "ID3v2 chapter tags embedded — data survives re-encoding to M4B/MP4 later",
-            "WAV":  "⚠ Chapter metadata will be lost — WAV has no chapter support",
-            "FLAC": "Lossless · limited chapter support",
+            "M4B":  t("FILE_LAB_AUDIO_NOTE_CHAPTERS"),
+            "MP4":  t("FILE_LAB_AUDIO_NOTE_CHAPTERS"),
+            "MP3":  t("FILE_LAB_AUDIO_NOTE_MP3"),
+            "WAV":  t("FILE_LAB_AUDIO_NOTE_WAV"),
+            "FLAC": t("FILE_LAB_AUDIO_NOTE_FLAC"),
         }
 
         self._conv_audio_in_path = None
@@ -1393,7 +1488,7 @@ class KoKoFishUI:
         _aud_status.pack(anchor="w", padx=14, pady=(0, 10))
 
         # ── COMBINE AUDIO FILES → AUDIOBOOK ────────────────────────────
-        comb_card = _card(scroll, "Combine Audio Files → Audiobook", "📚")
+        comb_card = _card(scroll, t("FILE_LAB_COMBINE_HEADER"), "📚")
 
         ctk.CTkLabel(
             comb_card,
@@ -1703,10 +1798,9 @@ class KoKoFishUI:
                      text_color=COLORS["text_primary"]).pack(side="left")
 
         # ── Translate panel ──────────────────────────────────────────────────
-        from tag_suggester import TRANSLATE_LANGUAGES
-
         self._listen_translate_var = tk.BooleanVar(value=False)
-        self._listen_translate_lang_var = ctk.StringVar(value="Spanish")
+        # Default to translated display name for "Spanish"
+        self._listen_translate_lang_var = ctk.StringVar(value=_display_from_en(_LANG_KEY_MAP, "Spanish"))
         self._listen_translate_voice_var = ctk.StringVar(
             value=getattr(self, "tts_voice_var", ctk.StringVar()).get()
             if hasattr(self, "tts_voice_var") else "Default (Random)"
@@ -1728,8 +1822,7 @@ class KoKoFishUI:
             command=self._listen_translate_toggled,
         )
         tr_switch.pack(side="left")
-        self._make_tooltip(tr_switch,
-            "When on: Whisper transcribes → Qwen translates → TTS re-reads in target language")
+        self._make_tooltip(tr_switch, t("LISTEN_LAB_TOOLTIP_TR_SWITCH"))
 
         # Controls shown only when translate is ON
         self._listen_tr_controls = ctk.CTkFrame(tr_card, fg_color="transparent")
@@ -1746,9 +1839,9 @@ class KoKoFishUI:
         ctk.CTkLabel(lang_col, text=t("LISTEN_LAB_TARGET_LANG_LABEL"), **_lf).pack(anchor="w")
         lang_menu = ctk.CTkOptionMenu(
             lang_col, variable=self._listen_translate_lang_var,
-            values=TRANSLATE_LANGUAGES, width=180, **_ef)
+            values=_display_names(_LANG_KEY_MAP), width=180, **_ef)
         lang_menu.pack()
-        self._make_tooltip(lang_menu, "Language to translate audio into")
+        self._make_tooltip(lang_menu, t("LISTEN_LAB_TOOLTIP_LANG_MENU"))
 
         # Voice
         voice_col = ctk.CTkFrame(self._listen_tr_controls, fg_color="transparent")
@@ -1760,7 +1853,7 @@ class KoKoFishUI:
             voice_col, variable=self._listen_translate_voice_var,
             values=_voice_names, width=200, **_ef)
         self._listen_voice_menu.pack()
-        self._make_tooltip(self._listen_voice_menu, "TTS voice used for the re-read")
+        self._make_tooltip(self._listen_voice_menu, t("LISTEN_LAB_TOOLTIP_VOICE_MENU"))
 
         # Hide controls initially (translate is OFF by default)
         self._listen_tr_controls.pack_forget()
@@ -1797,37 +1890,37 @@ class KoKoFishUI:
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             command=self._listen_play_selected, **_bs)
         self._btn_listen_play.pack(side="left", padx=(10, 4), pady=9)
-        self._make_tooltip(self._btn_listen_play, "Play all selected items in sequence")
+        self._make_tooltip(self._btn_listen_play, t("LISTEN_LAB_TOOLTIP_PLAY_ALL"))
 
         _prev_btn = ctk.CTkButton(bot, text="⏮", width=40,
                       fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                       command=self._listen_prev, **_bs)
         _prev_btn.pack(side="left", padx=(0, 2), pady=9)
-        self._make_tooltip(_prev_btn, "Previous track")
+        self._make_tooltip(_prev_btn, t("LISTEN_LAB_TOOLTIP_PREV"))
 
         _next_btn = ctk.CTkButton(bot, text="⏭", width=40,
                       fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                       command=self._listen_next, **_bs)
         _next_btn.pack(side="left", padx=(0, 8), pady=9)
-        self._make_tooltip(_next_btn, "Next track")
+        self._make_tooltip(_next_btn, t("LISTEN_LAB_TOOLTIP_NEXT"))
 
         _rm_sel = ctk.CTkButton(bot, text=t("LISTEN_LAB_BTN_REMOVE_SELECTED"), width=150,
                       fg_color=COLORS["danger"], hover_color="#d43d62",
                       command=self._listen_remove_selected, **_bs)
         _rm_sel.pack(side="left", padx=(0, 12), pady=9)
-        self._make_tooltip(_rm_sel, "Remove selected items from the list")
+        self._make_tooltip(_rm_sel, t("LISTEN_LAB_TOOLTIP_REMOVE_SEL"))
 
         _all_btn = ctk.CTkButton(bot, text=t("LISTEN_LAB_BTN_SELECT_ALL"), width=70,
                       fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                       command=lambda: self._listen_select_all(True), **_bs)
         _all_btn.pack(side="left", padx=(0, 4), pady=9)
-        self._make_tooltip(_all_btn, "Select all items")
+        self._make_tooltip(_all_btn, t("LISTEN_LAB_TOOLTIP_SELECT_ALL"))
 
         _none_btn = ctk.CTkButton(bot, text=t("LISTEN_LAB_BTN_SELECT_NONE"), width=70,
                       fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                       command=lambda: self._listen_select_all(False), **_bs)
         _none_btn.pack(side="left", padx=(0, 4), pady=9)
-        self._make_tooltip(_none_btn, "Deselect all items")
+        self._make_tooltip(_none_btn, t("LISTEN_LAB_TOOLTIP_DESELECT_ALL"))
 
         self._listen_status = ctk.CTkLabel(bot, text="",
                                            font=(FONT_FAMILY, 11),
@@ -2046,7 +2139,7 @@ class KoKoFishUI:
                                 fg_color=COLORS["danger"], hover_color="#d43d62",
                                 command=lambda i=idx: self._listen_remove(i), **_ib)
             _rb.pack(side="right", padx=(0, 6))
-            self._make_tooltip(_rb, "Remove from list")
+            self._make_tooltip(_rb, t("LISTEN_LAB_TOOLTIP_REMOVE_ITEM"))
 
             if is_active:
                 # Cancel ⊘
@@ -2055,7 +2148,7 @@ class KoKoFishUI:
                                     text_color="#1a1a2e",
                                     command=lambda i=idx: self._listen_cancel_pipeline(i), **_ib)
                 _cb.pack(side="right", padx=(0, 2))
-                self._make_tooltip(_cb, "Cancel conversion")
+                self._make_tooltip(_cb, t("LISTEN_LAB_TOOLTIP_CANCEL_CONV"))
 
                 # Pause ⏸ (only during TTS conversion — earlier stages can't pause)
                 if tl_status == "converting":
@@ -2068,7 +2161,7 @@ class KoKoFishUI:
                         border_color=COLORS["warning"], border_width=1,
                         command=lambda i=idx: self._listen_pause_pipeline(i), **_ib)
                     _pause_btn.pack(side="right", padx=(0, 2))
-                    self._make_tooltip(_pause_btn, "Resume" if _tl_paused else "Pause conversion")
+                    self._make_tooltip(_pause_btn, t("LISTEN_LAB_TOOLTIP_RESUME") if _tl_paused else t("LISTEN_LAB_TOOLTIP_PAUSE_CONV"))
 
             elif is_done and tl_path and os.path.isfile(tl_path):
                 # Metadata ⓘ (of translated audio)
@@ -2078,7 +2171,7 @@ class KoKoFishUI:
                                     command=lambda p=tl_path: self._open_audio_meta_editor(p),
                                     **_ib)
                 _mb.pack(side="right", padx=(0, 2))
-                self._make_tooltip(_mb, "Edit translated audio metadata")
+                self._make_tooltip(_mb, t("LISTEN_LAB_TOOLTIP_EDIT_META"))
 
                 # Save 💾
                 _sb = ctk.CTkButton(top, text="💾",
@@ -2087,7 +2180,7 @@ class KoKoFishUI:
                                     command=lambda p=tl_path, n=item["name"]: self._listen_save_translated(p, n),
                                     **_ib)
                 _sb.pack(side="right", padx=(0, 2))
-                self._make_tooltip(_sb, "Save translated audio")
+                self._make_tooltip(_sb, t("LISTEN_LAB_TOOLTIP_SAVE_AUDIO"))
 
                 # Transport strip packed right-to-left: ✕ … [⏮][⏪][▶/⏸][⏩][⏭] … ⓘ
                 # ⏭ next chapter (always visible) — rightmost of strip
@@ -2096,7 +2189,7 @@ class KoKoFishUI:
                                      border_color=COLORS["border"], border_width=1,
                                      command=self._listen_next, **_ib)
                 _nxt.pack(side="right", padx=(0, 2))
-                self._make_tooltip(_nxt, "Next chapter")
+                self._make_tooltip(_nxt, t("LISTEN_LAB_TOOLTIP_NEXT_CH"))
                 # ⏩ forward 30 s (only when active)
                 if is_playing or is_paused_play:
                     _fwd = ctk.CTkButton(top, text="⏩",
@@ -2104,7 +2197,7 @@ class KoKoFishUI:
                                          border_color=COLORS["border"], border_width=1,
                                          command=lambda: self._listen_seek(30), **_ib)
                     _fwd.pack(side="right", padx=(0, 2))
-                    self._make_tooltip(_fwd, "Skip forward 30 seconds")
+                    self._make_tooltip(_fwd, t("LISTEN_LAB_TOOLTIP_SKIP_FWD"))
                 # ▶/⏸ — centre of strip
                 _pp = ctk.CTkButton(
                     top,
@@ -2114,7 +2207,7 @@ class KoKoFishUI:
                     border_color=COLORS["success"], border_width=1,
                     command=lambda i=idx: self._listen_toggle_play(i), **_ib)
                 _pp.pack(side="right", padx=(0, 2))
-                self._make_tooltip(_pp, "Pause" if is_playing else "Play translated audio")
+                self._make_tooltip(_pp, t("LISTEN_LAB_TOOLTIP_PAUSE") if is_playing else t("LISTEN_LAB_TOOLTIP_PLAY_TRANSLATED"))
                 # ⏪ rewind 30 s (only when active)
                 if is_playing or is_paused_play:
                     _rwd = ctk.CTkButton(top, text="⏪",
@@ -2122,14 +2215,14 @@ class KoKoFishUI:
                                          border_color=COLORS["border"], border_width=1,
                                          command=lambda: self._listen_seek(-30), **_ib)
                     _rwd.pack(side="right", padx=(0, 2))
-                    self._make_tooltip(_rwd, "Rewind 30 seconds")
+                    self._make_tooltip(_rwd, t("LISTEN_LAB_TOOLTIP_REWIND"))
                 # ⏮ previous chapter — leftmost of strip
                 _prv = ctk.CTkButton(top, text="⏮",
                                      fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                                      border_color=COLORS["border"], border_width=1,
                                      command=self._listen_prev, **_ib)
                 _prv.pack(side="right", padx=(0, 2))
-                self._make_tooltip(_prv, "Previous chapter")
+                self._make_tooltip(_prv, t("LISTEN_LAB_TOOLTIP_PREV_CH"))
 
             else:
                 # Normal: metadata ⓘ on original file
@@ -2139,7 +2232,7 @@ class KoKoFishUI:
                                     command=lambda p=item["path"]: self._open_audio_meta_editor(p),
                                     **_ib)
                 _mb.pack(side="right", padx=(0, 2))
-                self._make_tooltip(_mb, "Edit audio metadata")
+                self._make_tooltip(_mb, t("LISTEN_LAB_TOOLTIP_EDIT_META"))
 
                 # Transport strip packed right-to-left: ✕ … [⏮][⏪][▶/⏸][⏩][⏭] … ⓘ
                 # ⏭ next chapter (always visible) — rightmost of strip
@@ -2148,7 +2241,7 @@ class KoKoFishUI:
                                      border_color=COLORS["border"], border_width=1,
                                      command=self._listen_next, **_ib)
                 _nxt.pack(side="right", padx=(0, 2))
-                self._make_tooltip(_nxt, "Next chapter")
+                self._make_tooltip(_nxt, t("LISTEN_LAB_TOOLTIP_NEXT_CH"))
                 # ⏩ forward 30 s (only when active)
                 if is_playing or is_paused_play:
                     _fwd = ctk.CTkButton(top, text="⏩",
@@ -2156,7 +2249,7 @@ class KoKoFishUI:
                                          border_color=COLORS["border"], border_width=1,
                                          command=lambda: self._listen_seek(30), **_ib)
                     _fwd.pack(side="right", padx=(0, 2))
-                    self._make_tooltip(_fwd, "Skip forward 30 seconds")
+                    self._make_tooltip(_fwd, t("LISTEN_LAB_TOOLTIP_SKIP_FWD"))
                 # ▶/⏸ — centre of strip
                 _pp = ctk.CTkButton(
                     top,
@@ -2166,7 +2259,7 @@ class KoKoFishUI:
                     border_color=COLORS["success"], border_width=1,
                     command=lambda i=idx: self._listen_toggle_play(i), **_ib)
                 _pp.pack(side="right", padx=(0, 2))
-                self._make_tooltip(_pp, "Pause" if is_playing else "Play audio")
+                self._make_tooltip(_pp, t("LISTEN_LAB_TOOLTIP_PAUSE") if is_playing else t("LISTEN_LAB_TOOLTIP_PLAY_AUDIO"))
                 # ⏪ rewind 30 s (only when active)
                 if is_playing or is_paused_play:
                     _rwd = ctk.CTkButton(top, text="⏪",
@@ -2174,21 +2267,21 @@ class KoKoFishUI:
                                          border_color=COLORS["border"], border_width=1,
                                          command=lambda: self._listen_seek(-30), **_ib)
                     _rwd.pack(side="right", padx=(0, 2))
-                    self._make_tooltip(_rwd, "Rewind 30 seconds")
+                    self._make_tooltip(_rwd, t("LISTEN_LAB_TOOLTIP_REWIND"))
                 # ⏮ previous chapter — leftmost of strip
                 _prv = ctk.CTkButton(top, text="⏮",
                                      fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
                                      border_color=COLORS["border"], border_width=1,
                                      command=self._listen_prev, **_ib)
                 _prv.pack(side="right", padx=(0, 2))
-                self._make_tooltip(_prv, "Previous chapter")
+                self._make_tooltip(_prv, t("LISTEN_LAB_TOOLTIP_PREV_CH"))
 
             # Name / status label
             if is_active:
                 _status_map = {
-                    "transcribing": "🎙  Transcribing…",
-                    "translating":  "🌐  Translating…",
-                    "converting":   "🔊  Converting…",
+                    "transcribing": t("LISTEN_LAB_STATUS_TRANSCRIBING"),
+                    "translating":  t("LISTEN_LAB_STATUS_TRANSLATING"),
+                    "converting":   t("LISTEN_LAB_STATUS_CONVERTING"),
                 }
                 ctk.CTkLabel(top, text=_status_map.get(tl_status, tl_status),
                              font=(FONT_FAMILY, 11, "italic"),
@@ -2776,7 +2869,7 @@ class KoKoFishUI:
         self._listen_status.configure(text=f"Transcribing: {item['name']}")
 
         src_path = item["path"]
-        lang     = self._listen_translate_lang_var.get()
+        lang     = _en_from_display(_LANG_KEY_MAP, self._listen_translate_lang_var.get())
         voice_name = self._listen_translate_voice_var.get()
         engine   = getattr(self.settings, "engine", "fish14")
 
@@ -3303,7 +3396,7 @@ class KoKoFishUI:
                                     state="disabled",
                                     command=lambda: _toggle_preview(), **_ib)
         btn_preview.pack(side="left", padx=(8, 4))
-        self._make_tooltip(btn_preview, "Preview recording")
+        self._make_tooltip(btn_preview, t("VOICE_LAB_TOOLTIP_PREVIEW_REC"))
 
         btn_save_rec = ctk.CTkButton(res_row, text="💾",
                                      fg_color=COLORS["bg_input"],
@@ -3312,7 +3405,7 @@ class KoKoFishUI:
                                      state="disabled",
                                      command=lambda: _save_recording(), **_ib)
         btn_save_rec.pack(side="left", padx=(0, 16))
-        self._make_tooltip(btn_save_rec, "Save recording to file")
+        self._make_tooltip(btn_save_rec, t("VOICE_LAB_TOOLTIP_SAVE_REC"))
 
         btn_clone_rec = ctk.CTkButton(res_row, text=t("VOICE_LAB_BTN_CLONE_FROM_REC"),
                                       width=150, height=36, corner_radius=8,
@@ -4599,12 +4692,7 @@ class KoKoFishUI:
             progress_color=COLORS["accent"],
         )
         _ctx_slider.pack(side="left")
-        self._make_tooltip(
-            _ctx_slider,
-            "How many conversation turns to include with each message.\n"
-            "0 = send full history.  Small models (0.5B) overflow above ~8 turns.\n"
-            "Larger models (1.5B+) handle 15-25 turns comfortably.",
-        )
+        self._make_tooltip(_ctx_slider, t("PROMPT_LAB_TOOLTIP_CTX"))
 
         # ── Persona / system-prompt bar ──────────────────────────────────
         preset_bar = ctk.CTkFrame(outer, fg_color=COLORS["bg_card"], corner_radius=8)
@@ -4616,21 +4704,22 @@ class KoKoFishUI:
             text_color=COLORS["text_secondary"],
         ).pack(side="left", padx=(10, 6), pady=6)
 
-        _preset_names = list(PROMPT_LAB_PRESETS.keys())
-        self._chat_preset_var = ctk.StringVar(value=_preset_names[0])
+        _preset_display = _display_names(_PRESET_KEY_MAP)
+        self._chat_preset_var = ctk.StringVar(value=_preset_display[0])
 
         def _on_preset_change(v):
+            en_name = _en_from_display(_PRESET_KEY_MAP, v)
             self._chat_system_box.configure(state="normal")
             self._chat_system_box.delete("1.0", "end")
-            preset_text = PROMPT_LAB_PRESETS.get(v, "")
+            preset_text = PROMPT_LAB_PRESETS.get(en_name, "")
             self._chat_system_box.insert("1.0", preset_text)
-            if v != "Custom":
+            if en_name != "Custom":
                 self._chat_system_box.configure(state="disabled")
 
         ctk.CTkOptionMenu(
             preset_bar,
             variable=self._chat_preset_var,
-            values=_preset_names,
+            values=_preset_display,
             width=180, height=26,
             fg_color=COLORS["bg_input"],
             button_color=COLORS["accent"],
@@ -4647,6 +4736,7 @@ class KoKoFishUI:
             text_color=COLORS["text_muted"],
         ).pack(side="left", padx=(0, 4))
 
+        _first_preset_en = _en_from_display(_PRESET_KEY_MAP, _preset_display[0])
         self._chat_system_box = ctk.CTkTextbox(
             preset_bar,
             height=28, wrap="none",
@@ -4655,7 +4745,7 @@ class KoKoFishUI:
             font=(FONT_FAMILY, 10),
         )
         self._chat_system_box.pack(side="left", fill="x", expand=True, padx=(0, 10), pady=4)
-        self._chat_system_box.insert("1.0", PROMPT_LAB_PRESETS[_preset_names[0]])
+        self._chat_system_box.insert("1.0", PROMPT_LAB_PRESETS[_first_preset_en])
         self._chat_system_box.configure(state="disabled")  # editable only on Custom
 
         # ── Chat display ─────────────────────────────────────────────────
@@ -6056,7 +6146,6 @@ class KoKoFishUI:
                         )
                 else:
                     # Non-Kokoro: toggle + language dropdown + tone dropdown
-                    from tag_suggester import TRANSLATE_LANGUAGES, TRANSLATE_TONES
                     tr_var = ctk.BooleanVar(value=item.get("translate", False))
 
                     def _on_tr_toggle(v=tr_var, i=idx):
@@ -6088,16 +6177,18 @@ class KoKoFishUI:
                         t("SPEECH_LAB_TOOLTIP_TRANSLATE"),
                     )
 
-                    saved_lang = item.get("translate_lang", "") or TRANSLATE_LANGUAGES[0]
-                    tr_lang_var = ctk.StringVar(value=saved_lang)
+                    _lang_display_opts = _display_names(_LANG_KEY_MAP)
+                    saved_lang_en = item.get("translate_lang", "") or "Japanese"
+                    saved_lang_disp = _display_from_en(_LANG_KEY_MAP, saved_lang_en)
+                    tr_lang_var = ctk.StringVar(value=saved_lang_disp)
 
                     def _on_tr_lang(v, i=idx, lvar=tr_lang_var):
-                        self._playlist_items[i]["translate_lang"] = lvar.get()
+                        self._playlist_items[i]["translate_lang"] = _en_from_display(_LANG_KEY_MAP, lvar.get())
 
                     ctk.CTkOptionMenu(
                         row,
                         variable=tr_lang_var,
-                        values=TRANSLATE_LANGUAGES,
+                        values=_lang_display_opts,
                         width=110,
                         height=22,
                         fg_color=COLORS["bg_input"],
@@ -6109,16 +6200,18 @@ class KoKoFishUI:
                         command=lambda v, i=idx, lvar=tr_lang_var: _on_tr_lang(v, i, lvar),
                     ).pack(side="left", padx=(0, 2))
 
-                    saved_tone = item.get("translate_tone", "Natural")
-                    tr_tone_var = ctk.StringVar(value=saved_tone)
+                    _tone_display_opts = _display_names(_TONE_KEY_MAP)
+                    saved_tone_en = item.get("translate_tone", "Natural")
+                    saved_tone_disp = _display_from_en(_TONE_KEY_MAP, saved_tone_en)
+                    tr_tone_var = ctk.StringVar(value=saved_tone_disp)
 
                     def _on_tr_tone(v, i=idx, tvar=tr_tone_var):
-                        self._playlist_items[i]["translate_tone"] = tvar.get()
+                        self._playlist_items[i]["translate_tone"] = _en_from_display(_TONE_KEY_MAP, tvar.get())
 
                     ctk.CTkOptionMenu(
                         row,
                         variable=tr_tone_var,
-                        values=TRANSLATE_TONES,
+                        values=_tone_display_opts,
                         width=90,
                         height=22,
                         fg_color=COLORS["bg_input"],
@@ -7669,7 +7762,7 @@ class KoKoFishUI:
             return
 
         clean = self._stt_strip_timestamps(text)
-        lang  = self._stt_translate_lang_var.get()
+        lang  = _en_from_display(_LANG_KEY_MAP, self._stt_translate_lang_var.get())
         self._stt_translate_btn.configure(state="disabled", text=t("TEXT_LAB_STATUS_TRANSLATING"))
 
         def _run():
