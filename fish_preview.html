@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>KoKoFish — Swim Animation Preview</title>
+<style>
+  body { background: #0f0f1a; margin: 0; display: flex; flex-direction: column;
+         align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; }
+  h3   { color: #6c83f7; margin-bottom: 12px; font-size: 14px; letter-spacing: 1px; }
+  canvas { display: block; border: 1px solid #222; }
+  p    { color: #555; font-size: 11px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h3>KoKoFish — Installer Fish Animation (Live Preview)</h3>
+<canvas id="c" width="450" height="60"></canvas>
+<p>450 × 60 px — same size as the installer canvas</p>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+
+// Match Python constants exactly
+const SPEED     = 1.2;
+const FISH_MIN  = 40;
+const FISH_MAX  = 410;
+const FY        = 30;      // centre y of 60px canvas
+const HALF_W    = 36;      // half of 72px icon width
+const MOUTH_OFF = 28;      // offset from cx to mouth
+
+const CYCLE   = 60;
+const OFFSETS = [0, 20, 40];
+const RISE    = 28;
+
+const BG = '#0f0f1a';
+
+let fishX   = 100;
+let fishDir = 1;
+let step    = 0;
+
+// Load both sprites — icon bg (#0f0f1a) matches canvas, so only outline shows
+const imgR = new Image();
+const imgL = new Image();
+let rReady = false, lReady = false;
+imgR.onload = () => rReady = true;
+imgL.onload = () => lReady = true;
+imgR.src = 'Images/fish_right.png';
+imgL.src = 'Images/fish_left.png';
+
+function tick() {
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, 450, 60);
+
+  fishX += fishDir * SPEED;
+  if (fishX >= FISH_MAX) { fishX = FISH_MAX; fishDir = -1; }
+  else if (fishX <= FISH_MIN) { fishX = FISH_MIN; fishDir = 1; }
+
+  const cx = Math.round(fishX);
+
+  // Draw sprite
+  // Original icon faces LEFT; fish_left.png is the flipped (right-facing) copy
+const img   = fishDir === 1 ? imgL : imgR;
+  const ready = fishDir === 1 ? rReady : lReady;
+  if (ready) {
+    ctx.drawImage(img, cx - HALF_W, FY - 30, 72, 60);
+  }
+
+  // Bubbles from mouth
+  const mouth_x = cx + MOUTH_OFF * fishDir;
+  const mouth_y = FY + 2;
+
+  for (let i = 0; i < OFFSETS.length; i++) {
+    const phase = ((step + OFFSETS[i]) % CYCLE) / CYCLE;
+    const bx    = mouth_x + (i - 1) * 4;
+    const by    = mouth_y - phase * RISE;
+    const r     = 2 + phase * 5;
+    const blue  = Math.min(255, 0x6c + phase * 140);
+    const green = Math.min(255, 0x83 + phase * 80);
+    ctx.fillStyle = `#6c${Math.round(green).toString(16).padStart(2,'0')}${Math.round(blue).toString(16).padStart(2,'0')}`;
+    ctx.beginPath();
+    ctx.arc(bx, by, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  step++;
+  setTimeout(tick, 55);
+}
+
+tick();
+</script>
+</body>
+</html>

@@ -5,7 +5,7 @@ a = Analysis(
     ['launcher.py'],
     pathex=[],
     binaries=[],
-    datas=[('translations.json', '.'), ('lang.py', '.')],
+    datas=[('translations.json', '.'), ('lang.py', '.'), ('Images\\fish_right.png', 'Images'), ('Images\\fish_left.png', 'Images')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

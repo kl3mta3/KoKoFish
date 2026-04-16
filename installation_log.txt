@@ -1,0 +1,16 @@
+[2026-04-16 16:19:23] ============================================================
+[2026-04-16 16:19:23] KoKoFish launcher started
+[2026-04-16 16:19:23] Log       : C:\Users\Kenny\source\repos\KoKoFish\installation_log.txt
+[2026-04-16 16:19:23] APP_DIR   : C:\Users\Kenny\source\repos\KoKoFish
+[2026-04-16 16:19:23] Executable: C:\Users\Kenny\source\repos\KoKoFish\KoKoFish.exe
+[2026-04-16 16:19:23] Python    : 3.12.3 (tags/v3.12.3:f6650f9, Apr  9 2024, 14:05:25) [MSC v.1938 64 bit (AMD64)]
+[2026-04-16 16:19:23] Frozen    : True
+[2026-04-16 16:19:23] VENV_DIR    : C:\Users\Kenny\source\repos\KoKoFish\venv  (exists=True)
+[2026-04-16 16:19:23] SETUP_MARKER: C:\Users\Kenny\source\repos\KoKoFish\.setup_complete  (exists=True)
+[2026-04-16 16:19:23] PACKAGES_DIR: C:\Users\Kenny\source\repos\KoKoFish\packages  (exists=True)
+[2026-04-16 16:19:23] PYTHON_EXE  : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pythonw.exe  (exists=True)
+[2026-04-16 16:19:23] PIP_EXE     : C:\Users\Kenny\source\repos\KoKoFish\venv\Scripts\pip.exe  (exists=True)
+[2026-04-16 16:19:23] __main__: setup_done=True  venv_python=True
+[2026-04-16 16:19:23] Kokoro check: onnx_ok=True  voices_ok=True
+[2026-04-16 16:19:23] All files present — launching main app directly
+[2026-04-16 16:19:23] Launching main app: C:\Users\Kenny\source\repos\KoKoFish\main.py

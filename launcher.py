@@ -17,9 +17,15 @@ import sys
 import datetime
 
 if getattr(sys, 'frozen', False):
-    APP_DIR = os.path.dirname(sys.executable)
+    APP_DIR   = os.path.dirname(sys.executable)
+    _DATA_DIR = sys._MEIPASS          # bundled data files live here
 else:
-    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+    APP_DIR   = os.path.dirname(os.path.abspath(__file__))
+    _DATA_DIR = APP_DIR
+
+def _resource(rel: str) -> str:
+    """Absolute path to a file bundled with the exe (or the repo in dev mode)."""
+    return os.path.join(_DATA_DIR, rel)
 
 INSTALL_LOG = os.path.join(APP_DIR, "installation_log.txt")
 
@@ -54,6 +60,59 @@ from lang import t, load_language, save_language_pref, get_languages
 VENV_DIR     = os.path.join(APP_DIR, "venv")
 SETUP_MARKER = os.path.join(APP_DIR, ".setup_complete")
 PACKAGES_DIR = os.path.join(APP_DIR, "packages")
+
+# ---------------------------------------------------------------------------
+# Kokoro download script — uses huggingface_hub directly (already in venv),
+# without importing utils.py (which pulls in torch/numpy and can crash).
+# Written to a temp file and run with the venv's python.exe.
+# ---------------------------------------------------------------------------
+_KOKORO_DL_SCRIPT = r'''
+import sys, os, shutil
+
+kd = sys.argv[1]           # kokoro_models directory (passed as arg)
+os.makedirs(kd, exist_ok=True)
+
+downloads = [
+    ("kokoro-v1.0.int8.onnx", "onnx/kokoro-v1.0.int8.onnx", 300),
+    ("voices-v1.0.bin",        "voices-v1.0.bin",             15),
+]
+n  = len(downloads)
+ok = True
+
+try:
+    from huggingface_hub import hf_hub_download
+except ImportError as e:
+    print(f"PROG:huggingface_hub not found: {e}|0.0", flush=True, file=sys.stderr)
+    sys.exit(1)
+
+for i, (local_name, repo_path, min_mb) in enumerate(downloads):
+    dest = os.path.join(kd, local_name)
+    if os.path.isfile(dest) and os.path.getsize(dest) > min_mb * 1_000_000:
+        print(f"PROG:{local_name} already present|{(i+1)/n:.3f}", flush=True)
+        continue
+    print(f"PROG:Downloading {local_name} (~{min_mb+10} MB)…|{i/n:.3f}", flush=True)
+    try:
+        path = hf_hub_download(
+            repo_id="hexgrad/Kokoro-82M",
+            filename=repo_path,
+            local_dir=kd,
+            local_dir_use_symlinks=False,
+        )
+        # hf_hub_download may save to kd/onnx/filename — move to flat kd/filename
+        if path and os.path.abspath(path) != os.path.abspath(dest) and os.path.isfile(path):
+            shutil.move(path, dest)
+        if os.path.isfile(dest):
+            print(f"PROG:{local_name} saved ({os.path.getsize(dest)//1_000_000} MB)|{(i+0.95)/n:.3f}", flush=True)
+        else:
+            raise FileNotFoundError(f"Expected file not found after download: {dest}")
+    except Exception as exc:
+        print(f"PROG:Download failed — {exc}|{i/n:.3f}", flush=True, file=sys.stderr)
+        ok = False
+        break
+
+print("PROG:Kokoro models ready|1.000", flush=True)
+sys.exit(0 if ok else 1)
+'''
 
 _log(f"VENV_DIR    : {VENV_DIR}  (exists={os.path.exists(VENV_DIR)})")
 _log(f"SETUP_MARKER: {SETUP_MARKER}  (exists={os.path.exists(SETUP_MARKER)})")
@@ -315,6 +374,18 @@ class InstallerGUI(tk.Tk):
         )
         self._canvas.pack(side="bottom", pady=(4, 8))
 
+        # Load fish sprites (icon PNG, one per direction) — must be created
+        # after the Tk window exists so PhotoImage has a root to attach to.
+        def _load_img(rel: str):
+            try:
+                p = _resource(rel)
+                return tk.PhotoImage(file=p) if os.path.isfile(p) else None
+            except Exception:
+                return None
+
+        self._fish_img_r = _load_img(os.path.join("Images", "fish_right.png"))
+        self._fish_img_l = _load_img(os.path.join("Images", "fish_left.png"))
+
         # Swimming fish state — _tick draws everything each frame
         self._fish_x      = 50.0   # start near left edge
         self._fish_dir    = 1      # +1 = right, -1 = left
@@ -332,18 +403,22 @@ class InstallerGUI(tk.Tk):
         c.delete("fish")
         c.delete("bubble")
 
-        # ── Fish swim constants ────────────────────────────────────────────
-        SPEED     = 1.2        # px per frame
-        FISH_MIN  = 36         # left turn-around x
-        FISH_MAX  = 414        # right turn-around x
-        FY        = 38         # fish centre y (canvas is 60px tall)
-        FH        = 9          # half-height of body
-        FW        = 14         # half-width of body
+        # ── Swim constants ─────────────────────────────────────────────────
+        # Icon is 72×60 px — drawn at native size into the 60 px-tall canvas.
+        # The icon background (#0f0f1a) matches the canvas, so the rectangle
+        # is invisible; only the fish outline shows.
+        SPEED     = 1.2
+        FISH_MIN  = 40    # leftmost centre x  (half icon width = 36)
+        FISH_MAX  = 410   # rightmost centre x
+        FY        = 30    # centre y of the 60 px-tall canvas
+        HALF_W    = 36    # half of icon width (72 px / 2)
+        # Mouth is near the right edge of the icon image (x ≈ 66 / 72)
+        MOUTH_OFF = 28    # horizontal offset from cx to where bubbles start
 
-        # ── Bubble constants (slightly slower than before) ─────────────────
-        CYCLE     = 52         # frames per bubble cycle  (was 40)
-        OFFSETS   = [0, 17, 34]
-        RISE      = 50
+        # ── Bubble constants ───────────────────────────────────────────────
+        CYCLE   = 60
+        OFFSETS = [0, 20, 40]
+        RISE    = 28      # bubbles rise this many px above the mouth
 
         s  = self._anim_step
         dr = self._fish_dir
@@ -361,73 +436,26 @@ class InstallerGUI(tk.Tk):
 
         cx = int(self._fish_x)
 
-        # Gentle tail waggle via sine — tip swings ±4px
-        waggle = int(4 * math.sin(s * 0.30))
+        # ── Draw fish sprite ───────────────────────────────────────────────
+        # Original icon faces LEFT; fish_left.png is the flipped (right-facing) copy.
+        img = self._fish_img_l if dr == 1 else self._fish_img_r
+        if img:
+            c.create_image(cx, FY, image=img, anchor="center", tags="fish")
+        else:
+            # Fallback: simple blue oval if images failed to load
+            c.create_oval(cx - 18, FY - 14, cx + 18, FY + 14,
+                          fill="#6c83f7", outline="", tags="fish")
 
-        # ── Draw fish ─────────────────────────────────────────────────────
-        if dr == -1:   # facing LEFT — tail on right, mouth on left
-            # Tail
-            c.create_polygon(
-                cx + FW, FY - FH,
-                cx + FW + 12, FY + waggle,
-                cx + FW, FY + FH,
-                fill="#6c83f7", outline="", tags="fish"
-            )
-            # Body
-            c.create_oval(
-                cx - FW, FY - FH, cx + FW, FY + FH,
-                fill="#6c83f7", outline="", tags="fish"
-            )
-            # Pectoral fin (lighter blue, below body)
-            c.create_polygon(
-                cx - 2, FY + 4,
-                cx + 7, FY + FH,
-                cx - 7, FY + FH,
-                fill="#8a9af9", outline="", tags="fish"
-            )
-            # Eye near mouth (left side)
-            c.create_oval(
-                cx - FW + 3, FY - 3,
-                cx - FW + 8, FY + 2,
-                fill="#0f0f1a", outline="", tags="fish"
-            )
-            mouth_x = cx - FW   # bubbles rise from here
+        # Mouth is at the front of the fish (right when facing right)
+        mouth_x = cx + MOUTH_OFF * dr
+        mouth_y = FY + 2   # slightly below centre (matches icon mouth position)
 
-        else:          # facing RIGHT — tail on left, mouth on right
-            # Tail
-            c.create_polygon(
-                cx - FW, FY - FH,
-                cx - FW - 12, FY + waggle,
-                cx - FW, FY + FH,
-                fill="#6c83f7", outline="", tags="fish"
-            )
-            # Body
-            c.create_oval(
-                cx - FW, FY - FH, cx + FW, FY + FH,
-                fill="#6c83f7", outline="", tags="fish"
-            )
-            # Pectoral fin
-            c.create_polygon(
-                cx + 2, FY + 4,
-                cx - 7, FY + FH,
-                cx + 7, FY + FH,
-                fill="#8a9af9", outline="", tags="fish"
-            )
-            # Eye near mouth (right side)
-            c.create_oval(
-                cx + FW - 8, FY - 3,
-                cx + FW - 3, FY + 2,
-                fill="#0f0f1a", outline="", tags="fish"
-            )
-            mouth_x = cx + FW   # bubbles rise from here
-
-        # ── Draw bubbles (cluster of 3 rising from mouth) ─────────────────
+        # ── Draw bubbles rising from mouth ─────────────────────────────────
         for i, offset in enumerate(OFFSETS):
             phase = ((s + offset) % CYCLE) / CYCLE
-            # Scatter bubbles a little horizontally around the mouth
-            bx = mouth_x + (i - 1) * 5   # –5, 0, +5 px spread
-            by = FY - int(phase * RISE)
-            r  = 2 + int(phase * 7)
+            bx = mouth_x + (i - 1) * 4
+            by = mouth_y - int(phase * RISE)
+            r  = 2 + int(phase * 5)
             blue  = min(255, 0x6c + int(phase * 140))
             green = min(255, 0x83 + int(phase * 80))
             color = f"#{0x6c:02x}{green:02x}{blue:02x}"
@@ -695,20 +723,14 @@ class InstallerGUI(tk.Tk):
                     _log("Kokoro model files missing — downloading via huggingface_hub")
                     # Use the venv's console python (python.exe, not pythonw.exe)
                     # so stdout can be captured for progress reporting.
-                    venv_py_console = os.path.join(VENV_DIR, "Scripts", "python.exe")
-                    if not os.path.isfile(venv_py_console):
-                        venv_py_console = PYTHON_EXE  # fallback
+                    venv_py = os.path.join(VENV_DIR, "Scripts", "python.exe")
+                    if not os.path.isfile(venv_py):
+                        venv_py = os.path.join(VENV_DIR, "Scripts", "pythonw.exe")
 
-                    # APP_DIR path — escape backslashes for the inline script
-                    _adir = APP_DIR.replace("\\", "\\\\")
-                    inline = (
-                        "import sys; sys.path.insert(0, r'" + APP_DIR + "'); "
-                        "from utils import setup_kokoro, is_kokoro_ready; "
-                        "ok = is_kokoro_ready() or setup_kokoro("
-                        "    lambda msg, frac: print(f'PROG:{msg}|{frac:.3f}', flush=True)"
-                        "); "
-                        "sys.exit(0 if ok else 1)"
-                    )
+                    # Write stdlib-only download script — no huggingface_hub needed
+                    tmp_script = os.path.join(APP_DIR, ".kokoro_dl_tmp.py")
+                    with open(tmp_script, "w", encoding="utf-8") as _f:
+                        _f.write(_KOKORO_DL_SCRIPT)
 
                     _kok_range = self._P_KOKORO_END - self._P_REQ_END
 
@@ -723,13 +745,19 @@ class InstallerGUI(tk.Tk):
                             pct = self._P_REQ_END + frac * _kok_range
                             self.update_progress(pct, msg)
 
-                    kok_result = _run_with_progress(
-                        "kokoro model download",
-                        [venv_py_console, "-c", inline],
-                        on_line=_on_kokoro_line,
-                        cwd=APP_DIR,
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                    )
+                    try:
+                        kok_result = _run_with_progress(
+                            "kokoro model download",
+                            [venv_py, tmp_script, kokoro_dir],
+                            on_line=_on_kokoro_line,
+                            cwd=APP_DIR,
+                            creationflags=subprocess.CREATE_NO_WINDOW,
+                        )
+                    finally:
+                        try:
+                            os.unlink(tmp_script)
+                        except Exception:
+                            pass
 
                     if kok_result.returncode != 0:
                         _log("WARNING: Kokoro model download failed — app will prompt on first use")
@@ -783,18 +811,16 @@ class InstallerGUI(tk.Tk):
                 self.update_status(t("LAUNCHER_STEP_KOKORO"))
                 self.update_progress(0, "")
 
-                venv_py_console = os.path.join(VENV_DIR, "Scripts", "python.exe")
-                if not os.path.isfile(venv_py_console):
-                    venv_py_console = PYTHON_EXE
+                # Use console python.exe (not pythonw.exe) so stdout is captured.
+                venv_py = os.path.join(VENV_DIR, "Scripts", "python.exe")
+                if not os.path.isfile(venv_py):
+                    venv_py = os.path.join(VENV_DIR, "Scripts", "pythonw.exe")
 
-                inline = (
-                    "import sys; sys.path.insert(0, r'" + APP_DIR + "'); "
-                    "from utils import setup_kokoro, is_kokoro_ready; "
-                    "ok = is_kokoro_ready() or setup_kokoro("
-                    "    lambda msg, frac: print(f'PROG:{msg}|{frac:.3f}', flush=True)"
-                    "); "
-                    "sys.exit(0 if ok else 1)"
-                )
+                # Write the download script to a temp file (pure stdlib — no
+                # huggingface_hub import, so it works even on a fresh venv).
+                tmp_script = os.path.join(APP_DIR, ".kokoro_dl_tmp.py")
+                with open(tmp_script, "w", encoding="utf-8") as _f:
+                    _f.write(_KOKORO_DL_SCRIPT)
 
                 def _on_line(line: str):
                     if line.startswith("PROG:"):
@@ -806,13 +832,19 @@ class InstallerGUI(tk.Tk):
                             frac = 0.0
                         self.update_progress(frac * 99, msg)
 
-                result = _run_with_progress(
-                    "kokoro model download (repair)",
-                    [venv_py_console, "-c", inline],
-                    on_line=_on_line,
-                    cwd=APP_DIR,
-                    creationflags=subprocess.CREATE_NO_WINDOW,
-                )
+                try:
+                    result = _run_with_progress(
+                        "kokoro model download (repair)",
+                        [venv_py, tmp_script, kokoro_dir],
+                        on_line=_on_line,
+                        cwd=APP_DIR,
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
+                finally:
+                    try:
+                        os.unlink(tmp_script)
+                    except Exception:
+                        pass
 
                 if result.returncode != 0:
                     _log("run_kokoro_only: download failed — launching anyway")
