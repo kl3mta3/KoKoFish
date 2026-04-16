@@ -180,32 +180,63 @@ class InstallerGUI(tk.Tk):
                         raise Exception("Automated Python installation failed. Please install manually.")
 
 
+                import datetime, traceback
+
+                INSTALL_LOG = os.path.join(APP_DIR, "installation_error.txt")
+
+                def _log(msg: str):
+                    """Append a timestamped line to installation_error.txt."""
+                    try:
+                        with open(INSTALL_LOG, "a", encoding="utf-8") as _f:
+                            _f.write(f"[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}] {msg}\n")
+                    except Exception:
+                        pass
+
+                def _run_logged(label, cmd, **kwargs):
+                    """Run a subprocess, capture output, log on failure, return CompletedProcess."""
+                    _log(f"Running: {label}")
+                    r = subprocess.run(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        **kwargs,
+                    )
+                    if r.returncode != 0:
+                        _log(f"FAILED (exit {r.returncode}): {label}")
+                        _log(r.stdout or "(no output)")
+                    else:
+                        _log(f"OK: {label}")
+                    return r
+
+                _log("=== KoKoFish installation started ===")
+
                 # 1. Create VENV
                 if not os.path.exists(VENV_DIR):
                     self.update_status(t("LAUNCHER_STEP_VENV"))
-                    subprocess.run(
+                    _run_logged("create venv",
                         [system_python, "-m", "venv", VENV_DIR],
                         check=True, creationflags=subprocess.CREATE_NO_WINDOW,
                     )
 
                 # 2. Upgrade pip inside the venv first
                 self.update_status(t("LAUNCHER_STEP_PIP"))
-                subprocess.run(
-                    [PIP_EXE, "install", "--quiet", "--upgrade", "pip"],
+                _run_logged("upgrade pip",
+                    [PIP_EXE, "install", "--upgrade", "pip"],
                     check=False, creationflags=subprocess.CREATE_NO_WINDOW,
                 )
 
                 # 3. PyTorch CPU — try local wheels first, fall back to official CPU index
                 self.update_status(t("LAUNCHER_STEP_PYTORCH"))
-                torch_local = subprocess.run(
-                    [PIP_EXE, "install", "--find-links", PACKAGES_DIR, "--quiet",
+                torch_local = _run_logged("torch (local wheels)",
+                    [PIP_EXE, "install", "--find-links", PACKAGES_DIR,
                      "torch", "torchaudio"],
                     check=False, creationflags=subprocess.CREATE_NO_WINDOW,
                 )
                 if torch_local.returncode != 0:
                     self.update_status(t("LAUNCHER_STEP_PYTORCH_DL"))
-                    subprocess.run(
-                        [PIP_EXE, "install", "--quiet",
+                    _run_logged("torch (PyPI CPU index)",
+                        [PIP_EXE, "install",
                          "torch", "torchaudio",
                          "--index-url", "https://download.pytorch.org/whl/cpu"],
                         check=False, creationflags=subprocess.CREATE_NO_WINDOW,
@@ -214,17 +245,21 @@ class InstallerGUI(tk.Tk):
                 # 4. All other dependencies — local wheels first, PyPI fallback
                 self.update_status(t("LAUNCHER_STEP_COMPONENTS"))
                 req_file = os.path.join(APP_DIR, "requirements.txt")
-                result = subprocess.run(
-                    [PIP_EXE, "install", "--find-links", PACKAGES_DIR, "--quiet",
+                result = _run_logged("requirements.txt",
+                    [PIP_EXE, "install", "--find-links", PACKAGES_DIR,
                      "-r", req_file],
                     check=False, creationflags=subprocess.CREATE_NO_WINDOW,
                 )
 
                 if result.returncode != 0:
+                    _log("Step 4/4 failed — raising exception")
                     raise Exception(
                         "Package installation failed.\n"
-                        "Check your internet connection and try again."
+                        f"Check your internet connection and try again.\n\n"
+                        f"Full details saved to:\n{INSTALL_LOG}"
                     )
+
+                _log("=== Installation completed successfully ===")
 
                 # Mark setup complete only after a successful install
                 with open(SETUP_MARKER, "w") as f:
@@ -234,8 +269,21 @@ class InstallerGUI(tk.Tk):
                 self.after(1000, self._spawn_and_linger)
 
             except Exception as e:
+                # Write full traceback to installation_error.txt
+                try:
+                    INSTALL_LOG = os.path.join(APP_DIR, "installation_error.txt")
+                    import datetime, traceback
+                    with open(INSTALL_LOG, "a", encoding="utf-8") as _f:
+                        _f.write(f"\n[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}] EXCEPTION:\n")
+                        _f.write(traceback.format_exc())
+                        _f.write("\n")
+                except Exception:
+                    pass
                 self.update_status(t("LAUNCHER_SETUP_FAILED_TITLE"))
-                messagebox.showerror(t("LAUNCHER_SETUP_FAILED_TITLE"), f"Setup failed:\n{e}")
+                messagebox.showerror(
+                    t("LAUNCHER_SETUP_FAILED_TITLE"),
+                    f"Setup failed:\n{e}\n\nSee installation_error.txt for details."
+                )
                 self.after(2000, self.destroy)
 
         threading.Thread(target=_worker, daemon=True).start()
