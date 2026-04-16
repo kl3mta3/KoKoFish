@@ -21,8 +21,6 @@ import sys
 import threading
 from typing import Optional, Callable
 
-from lang import t
-
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 
 logger = logging.getLogger("KoKoFish.tags")
@@ -109,37 +107,6 @@ LLM_MODELS: dict = {
         "n_ctx":        8192,
     },
 }
-
-# ---------------------------------------------------------------------------
-# LLM model display name localisation
-# Maps each LLM_MODELS key (internal identifier) to its translation key.
-# ---------------------------------------------------------------------------
-_LLM_MODEL_TRANSLATION_KEYS: dict = {
-    "Qwen 2.5 0.5B (default, ~400 MB)":              "LLM_MODEL_QWEN_05B",
-    "Qwen 3 1.7B (~1 GB)":                           "LLM_MODEL_QWEN_17B",
-    "Gemma 3 1B (~700 MB)":                          "LLM_MODEL_GEMMA3_1B",
-    "Gemma 3 4B (~2.5 GB)":                          "LLM_MODEL_GEMMA3_4B",
-    "Gemma 4 E2B Q4_0 (~3.4 GB)":                   "LLM_MODEL_GEMMA4_E2B",
-    "Qwen 2.5 0.5B Uncensored (~400 MB)":            "LLM_MODEL_QWEN_05B_UNCENSORED",
-    "Qwen 2.5 1.5B Uncensored (~1 GB)":              "LLM_MODEL_QWEN_15B_UNCENSORED",
-    "Gemma 3 1B Heretic Abliterated (~900 MB)":      "LLM_MODEL_GEMMA3_1B_ABLATED",
-    "Gemma 3 4B Abliterated (~2.5 GB)":              "LLM_MODEL_GEMMA3_4B_ABLATED",
-    "Gemma 4 Abliterated E2B (Ollama)":              "LLM_MODEL_GEMMA4_OLLAMA",
-}
-
-
-def get_llm_model_display_name(key: str) -> str:
-    """Return the localised display name for an LLM_MODELS key."""
-    trans_key = _LLM_MODEL_TRANSLATION_KEYS.get(key)
-    if trans_key:
-        return t(trans_key)
-    return key  # fallback: return the raw key
-
-
-def get_llm_model_display_names() -> list:
-    """Return a list of localised display names in LLM_MODELS order."""
-    return [get_llm_model_display_name(k) for k in LLM_MODELS]
-
 
 _SETTINGS_FILE = os.path.join(APP_DIR, "settings.json")
 

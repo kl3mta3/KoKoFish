@@ -17,8 +17,6 @@ import tempfile
 import threading
 from typing import Callable, Optional
 
-from lang import t
-
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 
 logger = logging.getLogger("KoKoFish.kokoro")
@@ -40,84 +38,84 @@ KOKORO_VOICES_PATH = os.path.join(_MODEL_DIR, "voices-v1.0.bin")
 # fmt: off
 KOKORO_VOICES: dict[str, str] = {
     # ── American English Female ───────────────────────────────────────────
-    t("VOICE_NAMES_AF_HEART"):        "af_heart",
-    t("VOICE_NAMES_AF_BELLA"):        "af_bella",
-    t("VOICE_NAMES_AF_NICOLE"):       "af_nicole",
-    t("VOICE_NAMES_AF_SARAH"):        "af_sarah",
-    t("VOICE_NAMES_AF_SKY"):          "af_sky",
-    t("VOICE_NAMES_AF_ALLOY"):        "af_alloy",
-    t("VOICE_NAMES_AF_ECHO"):         "af_echo",
-    t("VOICE_NAMES_AF_NOVA"):         "af_nova",
-    t("VOICE_NAMES_AF_RIVER"):        "af_river",
-    t("VOICE_NAMES_AF_AOEDE"):        "af_aoede",
-    t("VOICE_NAMES_AF_JESSICA"):      "af_jessica",
-    t("VOICE_NAMES_AF_KORE"):         "af_kore",
+    "🇺🇸 Heart (F)":        "af_heart",
+    "🇺🇸 Bella (F)":        "af_bella",
+    "🇺🇸 Nicole (F)":       "af_nicole",
+    "🇺🇸 Sarah (F)":        "af_sarah",
+    "🇺🇸 Sky (F)":          "af_sky",
+    "🇺🇸 Alloy (F)":        "af_alloy",
+    "🇺🇸 Echo (F)":         "af_echo",
+    "🇺🇸 Nova (F)":         "af_nova",
+    "🇺🇸 River (F)":        "af_river",
+    "🇺🇸 Aoede (F)":        "af_aoede",
+    "🇺🇸 Jessica (F)":      "af_jessica",
+    "🇺🇸 Kore (F)":         "af_kore",
     # ── American English Male ─────────────────────────────────────────────
-    t("VOICE_NAMES_AM_ADAM"):         "am_adam",
-    t("VOICE_NAMES_AM_MICHAEL"):      "am_michael",
-    t("VOICE_NAMES_AM_ERIC"):         "am_eric",
-    t("VOICE_NAMES_AM_FENRIR"):       "am_fenrir",
-    t("VOICE_NAMES_AM_LIAM"):         "am_liam",
-    t("VOICE_NAMES_AM_ONYX"):         "am_onyx",
-    t("VOICE_NAMES_AM_PUCK"):         "am_puck",
-    t("VOICE_NAMES_AM_SANTA"):        "am_santa",
+    "🇺🇸 Adam (M)":         "am_adam",
+    "🇺🇸 Michael (M)":      "am_michael",
+    "🇺🇸 Eric (M)":         "am_eric",
+    "🇺🇸 Fenrir (M)":       "am_fenrir",
+    "🇺🇸 Liam (M)":         "am_liam",
+    "🇺🇸 Onyx (M)":         "am_onyx",
+    "🇺🇸 Puck (M)":         "am_puck",
+    "🇺🇸 Santa (M)":        "am_santa",
     # ── British English Female ────────────────────────────────────────────
-    t("VOICE_NAMES_BF_EMMA"):         "bf_emma",
-    t("VOICE_NAMES_BF_ISABELLA"):     "bf_isabella",
-    t("VOICE_NAMES_BF_ALICE"):        "bf_alice",
-    t("VOICE_NAMES_BF_LILY"):         "bf_lily",
+    "🇬🇧 Emma (F)":         "bf_emma",
+    "🇬🇧 Isabella (F)":     "bf_isabella",
+    "🇬🇧 Alice (F)":        "bf_alice",
+    "🇬🇧 Lily (F)":         "bf_lily",
     # ── British English Male ──────────────────────────────────────────────
-    t("VOICE_NAMES_BM_GEORGE"):       "bm_george",
-    t("VOICE_NAMES_BM_LEWIS"):        "bm_lewis",
-    t("VOICE_NAMES_BM_DANIEL"):       "bm_daniel",
-    t("VOICE_NAMES_BM_FABLE"):        "bm_fable",
+    "🇬🇧 George (M)":       "bm_george",
+    "🇬🇧 Lewis (M)":        "bm_lewis",
+    "🇬🇧 Daniel (M)":       "bm_daniel",
+    "🇬🇧 Fable (M)":        "bm_fable",
     # ── Japanese Female ───────────────────────────────────────────────────
-    t("VOICE_NAMES_JF_ALPHA"):        "jf_alpha",
-    t("VOICE_NAMES_JF_GONGITSUNE"):   "jf_gongitsune",
-    t("VOICE_NAMES_JF_NEZUKO"):       "jf_nezuko",
-    t("VOICE_NAMES_JF_TEBUKURO"):     "jf_tebukuro",
+    "🇯🇵 Alpha (F)":        "jf_alpha",
+    "🇯🇵 Gongitsune (F)":   "jf_gongitsune",
+    "🇯🇵 Nezuko (F)":       "jf_nezuko",
+    "🇯🇵 Tebukuro (F)":     "jf_tebukuro",
     # ── Japanese Male ─────────────────────────────────────────────────────
-    t("VOICE_NAMES_JM_KUMO"):         "jm_kumo",
+    "🇯🇵 Kumo (M)":         "jm_kumo",
     # ── Spanish Female ────────────────────────────────────────────────────
-    t("VOICE_NAMES_EF_DORA"):         "ef_dora",
+    "🇪🇸 Dora (F)":         "ef_dora",
     # ── Spanish Male ──────────────────────────────────────────────────────
-    t("VOICE_NAMES_EM_ALEX"):         "em_alex",
-    t("VOICE_NAMES_EM_SANTA"):        "em_santa",
+    "🇪🇸 Alex (M)":         "em_alex",
+    "🇪🇸 Santa (M)":        "em_santa",
     # ── French Female ─────────────────────────────────────────────────────
-    t("VOICE_NAMES_FF_SIWIS"):        "ff_siwis",
+    "🇫🇷 Siwis (F)":        "ff_siwis",
     # ── Hindi Female ──────────────────────────────────────────────────────
-    t("VOICE_NAMES_HF_ALPHA"):        "hf_alpha",
-    t("VOICE_NAMES_HF_BETA"):         "hf_beta",
+    "🇮🇳 Alpha (F)":        "hf_alpha",
+    "🇮🇳 Beta (F)":         "hf_beta",
     # ── Hindi Male ────────────────────────────────────────────────────────
-    t("VOICE_NAMES_HM_OMEGA"):        "hm_omega",
-    t("VOICE_NAMES_HM_PSI"):          "hm_psi",
+    "🇮🇳 Omega (M)":        "hm_omega",
+    "🇮🇳 Psi (M)":          "hm_psi",
     # ── Italian Female ────────────────────────────────────────────────────
-    t("VOICE_NAMES_IF_SARA"):         "if_sara",
+    "🇮🇹 Sara (F)":         "if_sara",
     # ── Italian Male ──────────────────────────────────────────────────────
-    t("VOICE_NAMES_IM_NICOLA"):       "im_nicola",
+    "🇮🇹 Nicola (M)":       "im_nicola",
     # ── Brazilian Portuguese Female ───────────────────────────────────────
-    t("VOICE_NAMES_PF_DORA"):         "pf_dora",
+    "🇧🇷 Dora (F)":         "pf_dora",
     # ── Brazilian Portuguese Male ─────────────────────────────────────────
-    t("VOICE_NAMES_PM_ALEX"):         "pm_alex",
-    t("VOICE_NAMES_PM_SANTA"):        "pm_santa",
+    "🇧🇷 Alex (M)":         "pm_alex",
+    "🇧🇷 Santa (M)":        "pm_santa",
     # ── Mandarin Chinese Female ───────────────────────────────────────────
-    t("VOICE_NAMES_ZF_XIAOBEI"):      "zf_xiaobei",
-    t("VOICE_NAMES_ZF_XIAONI"):       "zf_xiaoni",
-    t("VOICE_NAMES_ZF_XIAOXIAO"):     "zf_xiaoxiao",
-    t("VOICE_NAMES_ZF_XIAOYI"):       "zf_xiaoyi",
+    "🇨🇳 Xiaobei (F)":      "zf_xiaobei",
+    "🇨🇳 Xiaoni (F)":       "zf_xiaoni",
+    "🇨🇳 Xiaoxiao (F)":     "zf_xiaoxiao",
+    "🇨🇳 Xiaoyi (F)":       "zf_xiaoyi",
     # ── Mandarin Chinese Male ─────────────────────────────────────────────
-    t("VOICE_NAMES_ZM_YUNJIAN"):      "zm_yunjian",
-    t("VOICE_NAMES_ZM_YUNXI"):        "zm_yunxi",
-    t("VOICE_NAMES_ZM_YUNXIA"):       "zm_yunxia",
-    t("VOICE_NAMES_ZM_YUNYANG"):      "zm_yunyang",
+    "🇨🇳 Yunjian (M)":      "zm_yunjian",
+    "🇨🇳 Yunxi (M)":        "zm_yunxi",
+    "🇨🇳 Yunxia (M)":       "zm_yunxia",
+    "🇨🇳 Yunyang (M)":      "zm_yunyang",
     # ── Korean Female ─────────────────────────────────────────────────────
-    t("VOICE_NAMES_KF_BELLA"):        "kf_bella",
-    t("VOICE_NAMES_KF_HEART"):        "kf_heart",
+    "🇰🇷 Bella (F)":        "kf_bella",
+    "🇰🇷 Heart (F)":        "kf_heart",
 }
 # fmt: on
 
 DEFAULT_VOICE = "af_bella"
-DEFAULT_VOICE_DISPLAY = t("VOICE_NAMES_AF_BELLA")
+DEFAULT_VOICE_DISPLAY = "🇺🇸 Bella (F)"
 VOICE_ID_FROM_NAME = {v: k for k, v in KOKORO_VOICES.items()}
 
 # Map voice ID prefix (first 2 chars) → language group display label.

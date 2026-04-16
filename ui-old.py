@@ -37,7 +37,6 @@ from utils import (
     export_pdf,
 )
 from voice_manager import VoiceManager
-from lang import t
 
 import re
 import time
@@ -154,7 +153,7 @@ class KoKoFishUI:
 
         subtitle = ctk.CTkLabel(
             header,
-            text=t("LAUNCHER_SUBTITLE"),
+            text="Audiobook Studio",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_secondary"],
         )
@@ -164,7 +163,7 @@ class KoKoFishUI:
         self._settings_window = None
         ctk.CTkButton(
             header,
-            text=t("SETTINGS_TAB_LABEL"),
+            text="⚙  Settings",
             width=110,
             height=32,
             font=(FONT_FAMILY, 12),
@@ -190,13 +189,13 @@ class KoKoFishUI:
         self.tabview.pack(fill="both", expand=True, padx=20, pady=(0, 20))
 
         # Create tabs
-        self.tab_tts      = self.tabview.add(t("MAIN_TAB_SPEECH_LAB"))
-        self.tab_voices   = self.tabview.add(t("MAIN_TAB_VOICE_LAB"))
-        self.tab_stt      = self.tabview.add(t("MAIN_TAB_TEXT_LAB"))
-        self.tab_convert  = self.tabview.add(t("MAIN_TAB_FILE_LAB"))
-        self.tab_listen   = self.tabview.add(t("MAIN_TAB_LISTEN_LAB"))
-        self.tab_script   = self.tabview.add(t("MAIN_TAB_SCRIPT_LAB"))
-        self.tab_chat     = self.tabview.add(t("MAIN_TAB_PROMPT_LAB"))
+        self.tab_tts      = self.tabview.add("🔊  Speech Lab")
+        self.tab_voices   = self.tabview.add("🧬  Voice Lab")
+        self.tab_stt      = self.tabview.add("📝  Text Lab")
+        self.tab_convert  = self.tabview.add("📁  File Lab")
+        self.tab_listen   = self.tabview.add("🎧  Listen Lab")
+        self.tab_script   = self.tabview.add("🎭  Script Lab")
+        self.tab_chat     = self.tabview.add("🤖  Prompt Lab")
 
         # Listen Lab state
         self._listen_items: list = []          # {path, name, selected}
@@ -311,7 +310,7 @@ class KoKoFishUI:
 
         self.tts_drop_label = ctk.CTkLabel(
             self.tts_drop,
-            text=t("SPEECH_LAB_DROP_ZONE"),
+            text="📄  Drag & drop .txt, .pdf, .docx, or .epub files here\nor click to browse",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_secondary"],
             justify="center",
@@ -354,7 +353,7 @@ class KoKoFishUI:
 
         self.speed_label = ctk.CTkLabel(
             speed_frame,
-            text=t("SPEECH_LAB_SPEED_LABEL", value=f"{self.settings.speed:.1f}"),
+            text=f"Speed: {self.settings.speed:.1f}x",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_secondary"],
         )
@@ -382,7 +381,7 @@ class KoKoFishUI:
 
         self.vol_label = ctk.CTkLabel(
             vol_frame,
-            text=t("SPEECH_LAB_VOLUME_LABEL", value=self.settings.volume),
+            text=f"Volume: {self.settings.volume}%",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_secondary"],
         )
@@ -409,7 +408,7 @@ class KoKoFishUI:
 
         self.cad_label = ctk.CTkLabel(
             cad_frame,
-            text=t("SPEECH_LAB_CADENCE_LABEL", value=self.settings.cadence),
+            text=f"Cadence: {self.settings.cadence}%",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_secondary"],
         )
@@ -435,7 +434,7 @@ class KoKoFishUI:
         style_frame.pack(side="left", padx=15)
         ctk.CTkLabel(
             style_frame,
-            text=t("SPEECH_LAB_CONTENT_STYLE_LABEL"),
+            text="Content Style",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_secondary"],
         ).pack(anchor="w")
@@ -515,7 +514,7 @@ class KoKoFishUI:
         # Read All button — only batch control in the header now
         self.btn_play = ctk.CTkButton(
             playlist_header,
-            text=t("SPEECH_LAB_BTN_CONVERT"),
+            text="▶ Read All",
             fg_color=COLORS["success"],
             hover_color="#05b890",
             font=(FONT_FAMILY, 12, "bold"),
@@ -530,7 +529,7 @@ class KoKoFishUI:
         silent_frame = ctk.CTkFrame(playlist_header, fg_color="transparent")
         silent_frame.pack(side="right", padx=(0, 16))
         ctk.CTkLabel(
-            silent_frame, text=t("SPEECH_LAB_BTN_SILENT_MODE"), font=(FONT_FAMILY, 13),
+            silent_frame, text="🔇 Work Silently", font=(FONT_FAMILY, 13),
             text_color=COLORS["text_secondary"],
         ).pack(side="left", padx=(0, 3))
         self.silent_switch = ctk.CTkSwitch(
@@ -544,7 +543,7 @@ class KoKoFishUI:
         auto_save_frame = ctk.CTkFrame(playlist_header, fg_color="transparent")
         auto_save_frame.pack(side="right", padx=(0, 10))
         ctk.CTkLabel(
-            auto_save_frame, text=t("SPEECH_LAB_BTN_AUTO_SAVE"), font=(FONT_FAMILY, 13),
+            auto_save_frame, text="📂 Auto Save", font=(FONT_FAMILY, 13),
             text_color=COLORS["text_secondary"],
         ).pack(side="left", padx=(0, 3))
         self.auto_save_switch = ctk.CTkSwitch(
@@ -565,7 +564,7 @@ class KoKoFishUI:
 
         self.playlist_empty_label = ctk.CTkLabel(
             self.playlist_frame,
-            text=t("SPEECH_LAB_PLAYLIST_EMPTY"),
+            text="No files in queue. Drop files above to add them.",
             font=(FONT_FAMILY, 12),
             text_color=COLORS["text_muted"],
         )
@@ -584,7 +583,7 @@ class KoKoFishUI:
 
         self.tts_status = ctk.CTkLabel(
             tab,
-            text=t("SPEECH_LAB_STATUS_READY"),
+            text="Ready",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_muted"],
         )
@@ -727,7 +726,7 @@ class KoKoFishUI:
 
         self.stt_drop_label = ctk.CTkLabel(
             self.stt_drop,
-            text=t("TEXT_LAB_DROP_ZONE"),
+            text="🎧  Drag & drop audio files here  (.wav .mp3 .m4a .ogg .opus .weba .webm…)\nor click to browse",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_secondary"],
             justify="center",
@@ -753,7 +752,7 @@ class KoKoFishUI:
 
         ctk.CTkLabel(
             model_frame,
-            text=t("TEXT_LAB_MODEL_LABEL"),
+            text="Whisper Model",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_secondary"],
         ).pack(anchor="w")
@@ -777,7 +776,7 @@ class KoKoFishUI:
         # Transcribe button
         self.btn_transcribe = ctk.CTkButton(
             stt_controls,
-            text=t("TEXT_LAB_BTN_TRANSCRIBE"),
+            text="🎙  Transcribe",
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             font=(FONT_FAMILY, 13, "bold"),
@@ -789,7 +788,7 @@ class KoKoFishUI:
 
         self.btn_stt_cancel = ctk.CTkButton(
             stt_controls,
-            text=t("TEXT_LAB_BTN_CANCEL"),
+            text="⏹  Cancel",
             fg_color=COLORS["danger"],
             hover_color="#d43d62",
             font=(FONT_FAMILY, 13, "bold"),
@@ -805,7 +804,7 @@ class KoKoFishUI:
         self._stt_timestamps_var = ctk.BooleanVar(value=True)
         ctk.CTkLabel(
             _ts_frame,
-            text=t("TEXT_LAB_TIMESTAMPS_TOGGLE"),
+            text="Timestamps",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_secondary"],
         ).pack(anchor="w")
@@ -849,7 +848,7 @@ class KoKoFishUI:
         ).pack(side="left", padx=(0, 4))
         self._stt_translate_btn = ctk.CTkButton(
             _tr_inner,
-            text=t("TEXT_LAB_BTN_TRANSLATE"),
+            text="🌐  Translate",
             fg_color="#e76f51",
             hover_color="#f4a261",
             font=(FONT_FAMILY, 11, "bold"),
@@ -862,7 +861,7 @@ class KoKoFishUI:
         # File info label
         self.stt_file_label = ctk.CTkLabel(
             stt_controls,
-            text=t("TEXT_LAB_FILE_LABEL_NONE"),
+            text="No file loaded",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_muted"],
         )
@@ -891,7 +890,7 @@ class KoKoFishUI:
             wrap="word",
         )
         self.stt_textbox.pack(fill="both", expand=True, padx=15, pady=5)
-        self.stt_textbox.insert("1.0", t("TEXT_LAB_TEXTBOX_PLACEHOLDER"))
+        self.stt_textbox.insert("1.0", "Transcription will appear here in real time...")
         self.stt_textbox.configure(state="disabled")
 
         # Export buttons
@@ -910,28 +909,28 @@ class KoKoFishUI:
         }
 
         ctk.CTkButton(
-            export_frame, text=t("TEXT_LAB_BTN_EXPORT_TXT"),
+            export_frame, text="📄  Save .txt",
             command=lambda: self._stt_export("txt"), **exp_style,
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
-            export_frame, text=t("TEXT_LAB_BTN_EXPORT_DOCX"),
+            export_frame, text="📝  Save .docx",
             command=lambda: self._stt_export("docx"), **exp_style,
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
-            export_frame, text=t("TEXT_LAB_BTN_EXPORT_PDF"),
+            export_frame, text="📑  Save .pdf",
             command=lambda: self._stt_export("pdf"), **exp_style,
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
-            export_frame, text=t("TEXT_LAB_BTN_EXPORT_EPUB"),
+            export_frame, text="📖  Save .epub",
             command=lambda: self._stt_export("epub"), **exp_style,
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
             export_frame,
-            text=t("TEXT_LAB_BTN_SEND_SPEECH"),
+            text="➕  Send to Speech Lab",
             command=self._stt_send_to_speech_lab,
             fg_color=COLORS["success"],
             hover_color="#05b886",
@@ -967,7 +966,7 @@ class KoKoFishUI:
             return f
 
         # ── TEXT CONVERSION ────────────────────────────────────────────
-        txt_card = _card(scroll, t("FILE_LAB_TEXT_CONVERSION_HEADER"), "📄")
+        txt_card = _card(scroll, "Text / Document Conversion", "📄")
 
         _TEXT_FORMATS = ["TXT", "PDF", "DOCX", "EPUB"]
         _TEXT_EXT = {
@@ -983,7 +982,7 @@ class KoKoFishUI:
 
         def _txt_browse(event=None):
             p = filedialog.askopenfilename(
-                title=t("FILE_LAB_DIALOG_OPEN_DOCUMENT"),
+                title="Open document…",
                 filetypes=[
                     ("Supported documents", _TEXT_READ_EXT),
                     ("All files", "*.*"),
@@ -1012,13 +1011,13 @@ class KoKoFishUI:
         def _txt_convert():
             src = self._conv_text_in_path
             if not src or not os.path.isfile(src):
-                messagebox.showinfo(t("FILE_LAB_CONVERT_TITLE"), t("FILE_LAB_MSG_NO_INPUT"), parent=self.root)
+                messagebox.showinfo("Convert", "No input file selected.", parent=self.root)
                 return
             to_fmt = _txt_to_var.get()
             ext, ftypes = _TEXT_EXT[to_fmt]
             stem = os.path.splitext(os.path.basename(src))[0]
             out = filedialog.asksaveasfilename(
-                title=t("FILE_LAB_DIALOG_SAVE_AS", fmt=to_fmt),
+                title=f"Save as {to_fmt}…",
                 defaultextension=ext,
                 filetypes=ftypes,
                 initialfile=f"{stem}{ext}",
@@ -1027,7 +1026,7 @@ class KoKoFishUI:
             if not out:
                 return
 
-            _txt_status.configure(text=t("FILE_LAB_STATUS_CONVERTING"), text_color=COLORS["warning"])
+            _txt_status.configure(text="Converting…", text_color=COLORS["warning"])
             _txt_btn.configure(state="disabled")
 
             def _run():
@@ -1044,13 +1043,13 @@ class KoKoFishUI:
                     elif to_fmt == "EPUB":
                         export_epub(text, out, title=title)
                     self.root.after(0, lambda: _txt_status.configure(
-                        text=t("FILE_LAB_STATUS_SAVED", fmt=to_fmt, filename=os.path.basename(out)),
+                        text=f"✅ Saved {to_fmt}: {os.path.basename(out)}",
                         text_color=COLORS["success"],
                     ))
                 except Exception as exc:
                     logger.error("Text convert failed: %s", exc)
                     self.root.after(0, lambda e=str(exc): _txt_status.configure(
-                        text=t("FILE_LAB_STATUS_ERROR", error=e), text_color=COLORS["danger"]
+                        text=f"⚠ {e}", text_color=COLORS["danger"]
                     ))
                 finally:
                     self.root.after(0, lambda: _txt_btn.configure(state="normal"))
@@ -1066,7 +1065,7 @@ class KoKoFishUI:
         _txt_drop.pack_propagate(False)
         self._conv_text_src_lbl = ctk.CTkLabel(
             _txt_drop,
-            text=t("FILE_LAB_DROP_ZONE"),
+            text="📄  Drop a TXT, PDF, DOCX or EPUB here — or click to browse",
             font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
         )
         self._conv_text_src_lbl.pack(expand=True)
@@ -2963,14 +2962,14 @@ class KoKoFishUI:
 
         ctk.CTkLabel(
             header,
-            text=t("VOICE_LAB_TITLE"),
+            text="🧬  Voice Profiles",
             font=(FONT_FAMILY, 18, "bold"),
             text_color=COLORS["text_primary"],
         ).pack(side="left")
 
         self.btn_clone = ctk.CTkButton(
             header,
-            text=t("VOICE_LAB_BTN_CLONE"),
+            text="➕  Clone Voice",
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             font=(FONT_FAMILY, 13, "bold"),
@@ -2983,7 +2982,7 @@ class KoKoFishUI:
 
         self.btn_refresh_voices = ctk.CTkButton(
             header,
-            text=t("VOICE_LAB_BTN_REFRESH"),
+            text="🔄  Refresh",
             fg_color=COLORS["bg_input"],
             hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"],
@@ -3011,7 +3010,7 @@ class KoKoFishUI:
 
         ctk.CTkLabel(
             gen_frame,
-            text=t("SPEECH_LAB_GEN_SETTINGS_HEADER"),
+            text="⚙  Generation Settings",
             font=(FONT_FAMILY, 11, "bold"),
             text_color=COLORS["text_secondary"],
         ).pack(anchor="w", padx=12, pady=(8, 4))
@@ -3505,7 +3504,7 @@ class KoKoFishUI:
         if not voice_list:
             ctk.CTkLabel(
                 self.voice_grid_frame,
-                text=t("VOICE_LAB_EMPTY_MSG"),
+                text="No voice profiles yet.\nClick 'Clone Voice' to create one.",
                 font=(FONT_FAMILY, 13),
                 text_color=COLORS["text_muted"],
                 justify="center",
@@ -3706,7 +3705,7 @@ class KoKoFishUI:
                 self._script_profile_name.set(name)
             save_profile(name, self._script_profile, _cur_engine())
             _refresh_profile_menu()
-            status_var.set(t("SCRIPT_LAB_STATUS_PROFILE_SAVED", name=name))
+            status_var.set(f"Profile '{name}' saved.")
 
         def _load_profile_by_name(name):
             if not name:
@@ -3715,7 +3714,7 @@ class KoKoFishUI:
             self._script_profile_name.set(name)
             narrator_voice_var.set(self._script_profile.get("narrator", {}).get("voice", ""))
             _refresh_char_list()
-            status_var.set(t("SCRIPT_LAB_STATUS_PROFILE_LOADED", name=name))
+            status_var.set(f"Profile '{name}' loaded.")
 
         def _refresh_profile_menu():
             profiles = list_profiles(_cur_engine())
@@ -3730,7 +3729,7 @@ class KoKoFishUI:
             self._script_profile_name.set("")
             _refresh_char_list()
             _refresh_profile_menu()
-            status_var.set(t("SCRIPT_LAB_STATUS_PROFILE_DELETED"))
+            status_var.set("Profile deleted.")
 
         # ---- Layout ------------------------------------------------------
         outer = ctk.CTkFrame(tab, fg_color="transparent")
@@ -3744,7 +3743,7 @@ class KoKoFishUI:
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
 
         ctk.CTkLabel(
-            left, text=t("SCRIPT_LAB_CHAR_PROFILES_HEADER"),
+            left, text="Character Profiles",
             font=(FONT_FAMILY, 14, "bold"), text_color=COLORS["text_primary"],
         ).pack(anchor="w", padx=12, pady=(12, 4))
 
@@ -3758,7 +3757,7 @@ class KoKoFishUI:
             self._script_profile_name.set("")
             narrator_voice_var.set("")
             _refresh_char_list()
-            status_var.set(t("SCRIPT_LAB_STATUS_NEW_PROFILE"))
+            status_var.set("New profile — add characters and save.")
 
         profiles_now = list_profiles(_cur_engine())
         profile_menu = ctk.CTkOptionMenu(
@@ -3773,27 +3772,27 @@ class KoKoFishUI:
         profile_menu.pack(side="left", padx=(0, 4))
 
         ctk.CTkButton(
-            prof_row, text=t("SCRIPT_LAB_BTN_NEW_PROFILE"), width=48, height=30,
+            prof_row, text="New", width=48, height=30,
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_primary"],
             command=_new_profile,
         ).pack(side="left", padx=2)
 
         ctk.CTkButton(
-            prof_row, text=t("COMMON_BTN_SAVE"), width=48, height=30,
+            prof_row, text="Save", width=48, height=30,
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             command=_save_profile,
         ).pack(side="left", padx=2)
 
         ctk.CTkButton(
-            prof_row, text=t("COMMON_BTN_DELETE"), width=52, height=30,
+            prof_row, text="Delete", width=52, height=30,
             fg_color="#5a2020", hover_color="#7a3030",
             command=_delete_profile,
         ).pack(side="left", padx=2)
 
         # Narrator voice
         ctk.CTkLabel(
-            left, text=t("SCRIPT_LAB_NARRATOR_VOICE_LABEL"),
+            left, text="Narrator Voice",
             font=(FONT_FAMILY, 12, "bold"), text_color=COLORS["text_secondary"],
         ).pack(anchor="w", padx=12, pady=(8, 2))
 
@@ -3824,7 +3823,7 @@ class KoKoFishUI:
 
         # Characters header
         ctk.CTkLabel(
-            left, text=t("SCRIPT_LAB_CHARACTERS_HEADER"),
+            left, text="Characters",
             font=(FONT_FAMILY, 12, "bold"), text_color=COLORS["text_secondary"],
         ).pack(anchor="w", padx=12, pady=(4, 2))
 
@@ -3848,22 +3847,22 @@ class KoKoFishUI:
                     _add_char_row(name, "", voices)
                     added += 1
             if added:
-                status_var.set(t("SCRIPT_LAB_STATUS_FOUND_CHARS", count=added))
+                status_var.set(f"Found {added} new character(s) in script.")
             else:
-                status_var.set(t("SCRIPT_LAB_STATUS_NO_NEW_CHARS"))
+                status_var.set("No new characters found.")
 
         add_row = ctk.CTkFrame(left, fg_color="transparent")
         add_row.pack(fill="x", padx=12, pady=(4, 12))
 
         ctk.CTkButton(
-            add_row, text=t("SCRIPT_LAB_BTN_ADD_CHARACTER"), height=32,
+            add_row, text="+ Add Character", height=32,
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_primary"],
             command=lambda: _add_char_row(),
         ).pack(side="left", fill="x", expand=True, padx=(0, 4))
 
         ctk.CTkButton(
-            add_row, text=t("SCRIPT_LAB_BTN_FIND_IN_SCRIPT"), height=32,
+            add_row, text="Find in Script", height=32,
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"],
             command=_find_characters,
@@ -3878,7 +3877,7 @@ class KoKoFishUI:
         toolbar.pack(fill="x", padx=10, pady=(10, 4))
 
         ctk.CTkLabel(
-            toolbar, text=t("SCRIPT_LAB_EDITOR_HEADER"),
+            toolbar, text="Script Editor",
             font=(FONT_FAMILY, 14, "bold"), text_color=COLORS["text_primary"],
         ).pack(side="left")
 
@@ -3887,14 +3886,14 @@ class KoKoFishUI:
 
         def _export_audio():
             if not self._script_audio_chunks:
-                status_var.set(t("SCRIPT_LAB_STATUS_NO_AUDIO_EXPORT"))
+                status_var.set("No audio to export — play the script first.")
                 return
             import numpy as np
             from tkinter import filedialog
             path = filedialog.asksaveasfilename(
                 defaultextension=".wav",
                 filetypes=[("WAV", "*.wav"), ("MP3", "*.mp3")],
-                title=t("SCRIPT_LAB_DIALOG_EXPORT_AUDIO"),
+                title="Export Script Audio",
             )
             if not path:
                 return
@@ -3902,35 +3901,35 @@ class KoKoFishUI:
                 import soundfile as sf
                 combined = np.concatenate(self._script_audio_chunks)
                 sf.write(path, combined, self._script_audio_sr)
-                status_var.set(t("SCRIPT_LAB_STATUS_AUDIO_EXPORTED", filename=os.path.basename(path)))
+                status_var.set(f"Audio exported: {os.path.basename(path)}")
             except Exception as exc:
-                status_var.set(t("SCRIPT_LAB_STATUS_EXPORT_FAILED", error=exc))
+                status_var.set(f"Export failed: {exc}")
 
         def _export_script():
             from tkinter import filedialog
             text = script_text.get("1.0", "end").strip()
             if not text:
-                status_var.set(t("SCRIPT_LAB_STATUS_SCRIPT_EMPTY"))
+                status_var.set("Script is empty.")
                 return
             path = filedialog.asksaveasfilename(
                 defaultextension=".txt",
                 filetypes=[("Text", "*.txt"), ("All files", "*.*")],
-                title=t("SCRIPT_LAB_DIALOG_EXPORT_SCRIPT"),
+                title="Export Script",
             )
             if not path:
                 return
             try:
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(text)
-                status_var.set(t("SCRIPT_LAB_STATUS_SCRIPT_EXPORTED", filename=os.path.basename(path)))
+                status_var.set(f"Script exported: {os.path.basename(path)}")
             except Exception as exc:
-                status_var.set(t("SCRIPT_LAB_STATUS_EXPORT_FAILED", error=exc))
+                status_var.set(f"Export failed: {exc}")
 
         def _load_script_file():
             from tkinter import filedialog
             path = filedialog.askopenfilename(
                 filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-                title=t("SCRIPT_LAB_DIALOG_LOAD_SCRIPT"),
+                title="Load Script File",
             )
             if not path:
                 return
@@ -3938,9 +3937,9 @@ class KoKoFishUI:
                 with open(path, "r", encoding="utf-8", errors="replace") as f:
                     script_text.delete("1.0", "end")
                     script_text.insert("1.0", f.read())
-                status_var.set(t("SCRIPT_LAB_STATUS_SCRIPT_LOADED", filename=os.path.basename(path)))
+                status_var.set(f"Script loaded: {os.path.basename(path)}")
             except Exception as exc:
-                status_var.set(t("SCRIPT_LAB_STATUS_LOAD_FAILED", error=exc))
+                status_var.set(f"Load failed: {exc}")
 
         # ── State extras beyond what __init__ sets up ─────────────────
         self._script_audio_sr      = 44100   # sample rate of generated audio
@@ -3973,7 +3972,7 @@ class KoKoFishUI:
                 _btn_refs["cancel"].pack_forget()
 
             _btn_refs["play_pause"].configure(
-                text=t("SCRIPT_LAB_BTN_PAUSE") if playing else t("SCRIPT_LAB_BTN_PLAY"),
+                text="⏸  Pause" if playing else "▶  Play",
                 state="normal" if (ready and not genning) else "disabled",
                 fg_color=COLORS["accent"] if ready else COLORS["bg_card"],
                 text_color=COLORS["text_primary"] if ready else COLORS["text_secondary"],
@@ -3987,7 +3986,7 @@ class KoKoFishUI:
         def _cancel_generation():
             self._script_stop_flag = True
             self._script_pb_stop.set()
-            status_var.set(t("SCRIPT_LAB_STATUS_CANCELLED"))
+            status_var.set("Cancelled.")
             self.root.after(200, lambda: _set_state("idle"))
 
         def _do_playback():
@@ -4036,18 +4035,18 @@ class KoKoFishUI:
             _collect_profile()
             text = script_text.get("1.0", "end").strip()
             if not text:
-                status_var.set(t("SCRIPT_LAB_STATUS_SCRIPT_EMPTY"))
+                status_var.set("Script is empty.")
                 return
             segments = parse_script(text)
             if not segments:
-                status_var.set(t("SCRIPT_LAB_STATUS_NO_SEGMENTS"))
+                status_var.set("No segments found — add [Character] tags first.")
                 return
 
             self._script_stop_flag = False
             self._script_audio_chunks = []
             self._script_combined = None
             _set_state("generating")
-            status_var.set(t("SCRIPT_LAB_STATUS_GENERATING"))
+            status_var.set("Generating audio…")
             live = not silent_var.get()
 
             def _worker():
@@ -4074,14 +4073,9 @@ class KoKoFishUI:
                         # Surface GPU/CPU provider in TTS status after first load
                         if engine == "kokoro":
                             _prov = getattr(self.tts, "provider", "")
-                            if _prov == "cuda":
-                                _ready_msg = t("SPEECH_LAB_STATUS_ENGINE_READY_GPU")
-                            elif _prov == "cpu":
-                                _ready_msg = t("SPEECH_LAB_STATUS_ENGINE_READY_CPU")
-                            else:
-                                _ready_msg = t("SPEECH_LAB_STATUS_ENGINE_READY")
-                            self.root.after(0, lambda msg=_ready_msg: self.update_tts_status(
-                                msg, COLORS["success"]
+                            _tag  = " (GPU)" if _prov == "cuda" else " (CPU)" if _prov == "cpu" else ""
+                            self.root.after(0, lambda t=_tag: self.update_tts_status(
+                                f"✅  Engine ready{t}", COLORS["success"]
                             ))
 
                     def on_error(exc):
@@ -4154,7 +4148,7 @@ class KoKoFishUI:
                             continue
                         voice = _voice_for_character(char)
                         self.root.after(0, lambda c=char, i=i, n=len(segments): status_var.set(
-                            t("SCRIPT_LAB_STATUS_GENERATING_SEGMENT", index=i+1, total=n, character=c)
+                            f"[{i+1}/{n}] Generating [{c}]…"
                         ))
                         try:
                             for audio, chunk_sr in _synth_blocking(stext, voice):
@@ -4175,34 +4169,34 @@ class KoKoFishUI:
                                         threading.Event().wait(0.02)
                         except Exception as exc:
                             logger.warning("Script segment [%s] failed: %s", char, exc)
-                            self.root.after(0, lambda e=str(exc): status_var.set(t("SCRIPT_LAB_STATUS_SEGMENT_ERROR", error=e)))
+                            self.root.after(0, lambda e=str(exc): status_var.set(f"Segment error: {e}"))
 
                     if self._script_audio_chunks and not self._script_stop_flag:
                         self._script_combined = np.concatenate(self._script_audio_chunks)
                         self._script_audio_sr = sr
                         self.root.after(0, lambda: status_var.set(
-                            t("SCRIPT_LAB_STATUS_DONE")
+                            "Done! Click Play to listen or Export Audio to save."
                         ))
                         self.root.after(0, lambda: _set_state("ready"))
                     else:
-                        self.root.after(0, lambda: status_var.set(t("SCRIPT_LAB_STATUS_CANCELLED") if self._script_stop_flag else t("SCRIPT_LAB_STATUS_NO_AUDIO")))
+                        self.root.after(0, lambda: status_var.set("Cancelled." if self._script_stop_flag else "No audio generated."))
                         self.root.after(0, lambda: _set_state("idle"))
                 except Exception as exc:
                     logger.error("Script generation failed: %s", exc)
-                    self.root.after(0, lambda e=str(exc): status_var.set(t("SCRIPT_LAB_STATUS_GENERATION_FAILED", error=e)))
+                    self.root.after(0, lambda e=str(exc): status_var.set(f"Generation failed: {e}"))
                     self.root.after(0, lambda: _set_state("idle"))
 
             threading.Thread(target=_worker, daemon=True).start()
 
         # ── Toolbar: save buttons (top right) + vol/silent (top left) ─
         ctk.CTkButton(
-            toolbar, text=t("SCRIPT_LAB_BTN_SAVE_SCRIPT"), width=90,
+            toolbar, text="Save Script", width=90,
             fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_primary"], command=_export_script, **btn_cfg,
         ).pack(side="right", padx=3)
 
         _btn_refs["save_audio"] = ctk.CTkButton(
-            toolbar, text=t("SCRIPT_LAB_BTN_SAVE_AUDIO"), width=85,
+            toolbar, text="Save Audio", width=85,
             fg_color=COLORS["bg_card"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_secondary"], command=_export_audio,
             state="disabled", **btn_cfg,
@@ -4212,7 +4206,7 @@ class KoKoFishUI:
         # Volume slider
         script_vol_var = tk.IntVar(value=self.settings.volume)
         ctk.CTkLabel(
-            toolbar, text=t("SCRIPT_LAB_VOL_LABEL"),
+            toolbar, text="Vol:",
             font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
         ).pack(side="left", padx=(10, 2))
         ctk.CTkSlider(
@@ -4222,7 +4216,7 @@ class KoKoFishUI:
         ).pack(side="left", padx=(0, 6))
 
         ctk.CTkSwitch(
-            toolbar, text=t("SCRIPT_LAB_SILENT_LABEL"), variable=silent_var,
+            toolbar, text="Silent", variable=silent_var,
             onvalue=True, offvalue=False,
             font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
             progress_color=COLORS["accent"],
@@ -4233,11 +4227,11 @@ class KoKoFishUI:
         ai_bar.pack(fill="x", padx=10, pady=(0, 6))
 
         ctk.CTkLabel(
-            ai_bar, text=t("SCRIPT_LAB_AI_TAG_LABEL"),
+            ai_bar, text="Tag with AI:",
             font=(FONT_FAMILY, 12), text_color=COLORS["text_secondary"],
         ).pack(side="left", padx=(10, 6), pady=6)
 
-        ai_file_var = tk.StringVar(value=t("SCRIPT_LAB_AI_DROP_ZONE"))
+        ai_file_var = tk.StringVar(value="Drop or browse a book/document...")
         ctk.CTkLabel(
             ai_bar, textvariable=ai_file_var,
             font=(FONT_FAMILY, 11), text_color=COLORS["text_secondary"],
@@ -4261,12 +4255,12 @@ class KoKoFishUI:
 
         def _run_ai_tag():
             if not self._ai_source_path:
-                status_var.set(t("SCRIPT_LAB_STATUS_BROWSE_FIRST"))
+                status_var.set("Browse a source document first.")
                 return
             _collect_profile()
             char_names = [c["name"] for c in self._script_profile.get("characters", [])]
             engine = getattr(self.settings, "engine", "kokoro")
-            status_var.set(t("SCRIPT_LAB_STATUS_READING_FILE"))
+            status_var.set("Reading source file...")
 
             def _worker():
                 try:
@@ -4277,21 +4271,21 @@ class KoKoFishUI:
                     def _apply():
                         script_text.delete("1.0", "end")
                         script_text.insert("1.0", tagged)
-                        status_var.set(t("SCRIPT_LAB_STATUS_AI_TAG_COMPLETE"))
+                        status_var.set("AI tagging complete.")
                     self.root.after(0, _apply)
                 except Exception as exc:
-                    self.root.after(0, lambda e=exc: status_var.set(t("SCRIPT_LAB_STATUS_AI_TAG_FAILED", error=e)))
+                    self.root.after(0, lambda e=exc: status_var.set(f"AI tag failed: {e}"))
 
             threading.Thread(target=_worker, daemon=True).start()
 
         ctk.CTkButton(
-            ai_bar, text=t("COMMON_BTN_BROWSE"), width=70, height=28,
+            ai_bar, text="Browse", width=70, height=28,
             fg_color=COLORS["bg_dark"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_primary"], command=_browse_source,
         ).pack(side="left", padx=4, pady=6)
 
         ctk.CTkButton(
-            ai_bar, text=t("SCRIPT_LAB_BTN_GENERATE_SCRIPT"), width=120, height=28,
+            ai_bar, text="Generate Script", width=120, height=28,
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             command=_run_ai_tag,
         ).pack(side="left", padx=4, pady=6)
@@ -4299,10 +4293,10 @@ class KoKoFishUI:
         def _run_enhance():
             text = script_text.get("1.0", "end").strip()
             if not text:
-                status_var.set(t("SCRIPT_LAB_STATUS_EMPTY_ENHANCE"))
+                status_var.set("Script is empty — nothing to enhance.")
                 return
             engine = getattr(self.settings, "engine", "kokoro")
-            status_var.set(t("SCRIPT_LAB_STATUS_ENHANCING"))
+            status_var.set("Enhancing script flow...")
 
             def _worker():
                 try:
@@ -4312,15 +4306,15 @@ class KoKoFishUI:
                     def _apply():
                         script_text.delete("1.0", "end")
                         script_text.insert("1.0", enhanced)
-                        status_var.set(t("SCRIPT_LAB_STATUS_ENHANCE_COMPLETE"))
+                        status_var.set("Script enhancement complete.")
                     self.root.after(0, _apply)
                 except Exception as exc:
-                    self.root.after(0, lambda e=exc: status_var.set(t("SCRIPT_LAB_STATUS_ENHANCE_FAILED", error=e)))
+                    self.root.after(0, lambda e=exc: status_var.set(f"Enhance failed: {e}"))
 
             threading.Thread(target=_worker, daemon=True).start()
 
         ctk.CTkButton(
-            ai_bar, text=t("SCRIPT_LAB_BTN_ENHANCE_SCRIPT"), width=140, height=28,
+            ai_bar, text="Enhance Script", width=140, height=28,
             fg_color=COLORS["bg_dark"], hover_color=COLORS["bg_card_hover"],
             text_color=COLORS["text_primary"], font=(FONT_FAMILY, 12),
             command=_run_enhance,
@@ -4328,7 +4322,7 @@ class KoKoFishUI:
 
         ctk.CTkLabel(
             ai_bar,
-            text=t("SCRIPT_LAB_AI_TAG_INFO"),
+            text="Kokoro = plain tags  |  Fish-Speech = emotion tags",
             font=(FONT_FAMILY, 10), text_color=COLORS["text_secondary"],
         ).pack(side="right", padx=10, pady=6)
 
@@ -4345,7 +4339,7 @@ class KoKoFishUI:
         script_text.pack(fill="both", expand=True, padx=10, pady=(0, 6))
 
         # Status bar
-        status_var = tk.StringVar(value=t("SCRIPT_LAB_STATUS_READY"))
+        status_var = tk.StringVar(value="Ready. Add characters to a profile, then load or generate a script.")
 
         # Drag-and-drop into the script editor
         def _on_script_drop(event):
@@ -4359,7 +4353,7 @@ class KoKoFishUI:
                 paths = raw.split()
             path = paths[0] if paths else ""
             if not path or not os.path.isfile(path):
-                status_var.set(t("SCRIPT_LAB_STATUS_DROP_HINT"))
+                status_var.set("Drop a .txt, .pdf, .docx, .epub, or tagged .txt script file.")
                 return
             ext = os.path.splitext(path)[1].lower()
             if ext == ".txt":
@@ -4372,12 +4366,12 @@ class KoKoFishUI:
                     # Register as source so "Generate Script" can AI-tag it
                     self._ai_source_path = path
                     ai_file_var.set(os.path.basename(path))
-                    status_var.set(t("SCRIPT_LAB_STATUS_SCRIPT_LOADED", filename=os.path.basename(path)))
+                    status_var.set(f"Loaded: {os.path.basename(path)}")
                 except Exception as exc:
-                    status_var.set(t("SCRIPT_LAB_STATUS_LOAD_FAILED", error=exc))
+                    status_var.set(f"Could not read file: {exc}")
             elif ext in (".pdf", ".docx", ".epub"):
                 # Extract prose — user will then run AI tagging
-                status_var.set(t("SCRIPT_LAB_STATUS_READING_FILE"))
+                status_var.set(f"Reading {os.path.basename(path)}…")
                 def _load(p=path):
                     try:
                         content = read_source_file(p)
@@ -4386,13 +4380,16 @@ class KoKoFishUI:
                             script_text.insert("1.0", content)
                             self._ai_source_path = p
                             ai_file_var.set(os.path.basename(p))
-                            status_var.set(t("SCRIPT_LAB_STATUS_LOADED_PROSE", filename=os.path.basename(p)))
+                            status_var.set(
+                                f"Loaded {os.path.basename(p)} as plain text. "
+                                "Click Generate Script to tag it."
+                            )
                         self.root.after(0, _apply)
                     except Exception as exc:
-                        self.root.after(0, lambda e=exc: status_var.set(t("SCRIPT_LAB_STATUS_LOAD_FAILED", error=e)))
+                        self.root.after(0, lambda e=exc: status_var.set(f"Could not read file: {e}"))
                 threading.Thread(target=_load, daemon=True).start()
             else:
-                status_var.set(t("SCRIPT_LAB_STATUS_UNSUPPORTED_FILE"))
+                status_var.set("Unsupported file type. Drop .txt, .pdf, .docx, or .epub.")
 
         try:
             from tkinterdnd2 import DND_FILES
@@ -4406,7 +4403,7 @@ class KoKoFishUI:
         bottom_bar.pack(fill="x", padx=10, pady=(4, 2))
 
         _btn_refs["play_pause"] = ctk.CTkButton(
-            bottom_bar, text=t("SCRIPT_LAB_BTN_PLAY"), width=80,
+            bottom_bar, text="▶  Play", width=80,
             fg_color=COLORS["bg_card"], hover_color=COLORS["accent_hover"],
             text_color=COLORS["text_secondary"], command=_toggle_play_pause,
             state="disabled", **btn_cfg,
@@ -4415,7 +4412,7 @@ class KoKoFishUI:
 
         # Cancel lives in the bottom bar but starts hidden; _set_state shows/hides it
         _btn_refs["cancel"] = ctk.CTkButton(
-            bottom_bar, text=t("COMMON_BTN_CANCEL"), width=80,
+            bottom_bar, text="⏹  Cancel", width=80,
             fg_color="#5a2020", hover_color="#7a3030",
             text_color=COLORS["text_primary"], command=_cancel_generation,
             **btn_cfg,
@@ -4423,7 +4420,7 @@ class KoKoFishUI:
         # (not packed yet — _set_state("idle") will leave it hidden)
 
         _btn_refs["generate"] = ctk.CTkButton(
-            bottom_bar, text=t("SCRIPT_LAB_BTN_GENERATE"), width=100,
+            bottom_bar, text="▶  Generate", width=100,
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             command=_generate_script, **btn_cfg,
         )
@@ -4459,7 +4456,7 @@ class KoKoFishUI:
         top_bar.pack(fill="x", pady=(0, 8))
 
         ctk.CTkLabel(
-            top_bar, text=t("PROMPT_LAB_HEADER"),
+            top_bar, text="🤖  Prompt Lab",
             font=(FONT_FAMILY, 16, "bold"),
             text_color=COLORS["accent_light"],
         ).pack(side="left")
@@ -4473,7 +4470,7 @@ class KoKoFishUI:
         self._chat_refresh_model_badge()
 
         ctk.CTkButton(
-            top_bar, text=t("PROMPT_LAB_BTN_CLEAR_CHAT"),
+            top_bar, text="🗑  Clear Chat",
             width=110, height=28, corner_radius=6,
             fg_color=COLORS["bg_input"],
             hover_color=COLORS["bg_card_hover"],
@@ -4491,7 +4488,7 @@ class KoKoFishUI:
         _ctx_right.pack(side="right", padx=(0, 12))
 
         ctk.CTkLabel(
-            _ctx_right, text=t("PROMPT_LAB_CONTEXT_LABEL"),
+            _ctx_right, text="Context:",
             font=(FONT_FAMILY, 10),
             text_color=COLORS["text_muted"],
         ).pack(side="left", padx=(0, 4))
@@ -4534,7 +4531,7 @@ class KoKoFishUI:
         preset_bar.pack(fill="x", pady=(0, 8))
 
         ctk.CTkLabel(
-            preset_bar, text=t("PROMPT_LAB_PERSONA_LABEL"),
+            preset_bar, text="Persona:",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_secondary"],
         ).pack(side="left", padx=(10, 6), pady=6)
@@ -4565,7 +4562,7 @@ class KoKoFishUI:
         ).pack(side="left", padx=(0, 8), pady=6)
 
         ctk.CTkLabel(
-            preset_bar, text=t("PROMPT_LAB_SYSTEM_PROMPT_LABEL"),
+            preset_bar, text="System prompt:",
             font=(FONT_FAMILY, 10),
             text_color=COLORS["text_muted"],
         ).pack(side="left", padx=(0, 4))
@@ -4620,14 +4617,20 @@ class KoKoFishUI:
         try:
             from tag_suggester import get_active_model_cfg, get_active_llm_key, is_llm_available, is_qwen_model_ready
             if not is_llm_available():
-                _welcome = t("PROMPT_LAB_WELCOME_NO_LLM")
+                _welcome = ("llama-cpp-python is not installed.\n"
+                            "Go to Settings to install it, then come back.\n\n")
             elif not is_qwen_model_ready():
-                _welcome = t("PROMPT_LAB_WELCOME_NO_MODEL")
+                _welcome = ("No LLM model found.\n"
+                            "Go to Settings -> Download Model, then come back.\n\n")
             else:
                 _cfg = get_active_model_cfg()
-                _welcome = t("PROMPT_LAB_WELCOME_READY", model=get_active_llm_key(), filename=_cfg.get('filename', ''))
+                _welcome = (
+                    f"Model: {get_active_llm_key()}  ({_cfg.get('filename', '')})\n"
+                    "Type a message and press Send or Ctrl+Enter. "
+                    "Pick a Persona above to guide the tone.\n\n"
+                )
         except Exception:
-            _welcome = t("PROMPT_LAB_WELCOME_FALLBACK")
+            _welcome = "Local LLM ready. Type a message and press Send or Ctrl+Enter.\n\n"
 
         self._chat_append("muted", _welcome)
 
@@ -4692,7 +4695,7 @@ class KoKoFishUI:
 
         self._chat_send_btn = ctk.CTkButton(
             btn_col,
-            text=t("PROMPT_LAB_BTN_SEND"),
+            text="Send  ▶",
             width=100, height=36, corner_radius=8,
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
@@ -4703,7 +4706,7 @@ class KoKoFishUI:
 
         ctk.CTkButton(
             btn_col,
-            text=t("PROMPT_LAB_BTN_ATTACH"),
+            text="📎 Attach",
             width=100, height=28, corner_radius=6,
             fg_color=COLORS["bg_input"],
             hover_color=COLORS["bg_card_hover"],
@@ -4720,7 +4723,7 @@ class KoKoFishUI:
         )
         self._chat_status.pack(pady=(4, 0))
 
-        self._make_tooltip(self._chat_send_btn, t("PROMPT_LAB_TOOLTIP_SEND"))
+        self._make_tooltip(self._chat_send_btn, "Send message  (Ctrl+Enter)")
 
     # ── Attachment helpers ────────────────────────────────────────────────
 
@@ -4729,7 +4732,7 @@ class KoKoFishUI:
     def _chat_attach_file(self):
         """Open a file picker and attach a text file to the next message."""
         path = filedialog.askopenfilename(
-            title=t("PROMPT_LAB_DIALOG_ATTACH"),
+            title="Attach text file",
             filetypes=[
                 ("Text files", "*.txt *.md *.csv *.log *.rst *.json *.xml *.html"),
                 ("All files",  "*.*"),
@@ -4758,14 +4761,16 @@ class KoKoFishUI:
             try:
                 content = open(path, encoding="utf-8", errors="replace").read()
             except Exception as exc:
-                messagebox.showerror(t("COMMON_ERROR"), t("SPEECH_LAB_MSG_FILE_ERROR_BODY", error=exc))
+                messagebox.showerror("Error", f"Could not read file:\n{exc}")
                 return
             size_kb = len(content) / 1024
             # Warn if file is very large — small models have limited context
             if len(content) > 6000:
                 if not messagebox.askyesno(
-                    t("PROMPT_LAB_MSG_LARGE_FILE_TITLE"),
-                    t("PROMPT_LAB_MSG_LARGE_FILE_BODY", name=name, size_kb=f"{size_kb:.0f}", chars=f"{len(content):,}"),
+                    "Large File",
+                    f"'{name}' is {size_kb:.0f} KB ({len(content):,} chars).\n\n"
+                    "Small models have a limited context window and may struggle "
+                    "with very large files.  Attach anyway?",
                     parent=self.root,
                 ):
                     return
@@ -4774,8 +4779,9 @@ class KoKoFishUI:
             })
         else:
             messagebox.showinfo(
-                t("PROMPT_LAB_MSG_UNSUPPORTED_FILE_TITLE"),
-                t("PROMPT_LAB_MSG_UNSUPPORTED_FILE_BODY", ext=ext),
+                "Unsupported File Type",
+                f"'{ext}' files are not supported.\n\n"
+                "Supported types:  .txt  .md  .csv  .log  .json  .xml  .html",
                 parent=self.root,
             )
 
@@ -4799,16 +4805,16 @@ class KoKoFishUI:
             from tag_suggester import get_active_model_cfg, get_active_llm_key, is_llm_available, is_qwen_model_ready
             if not is_llm_available():
                 self._chat_model_badge.configure(
-                    text=t("PROMPT_LAB_BADGE_NO_LLM"), text_color=COLORS["danger"]
+                    text="⚠ llama-cpp not installed", text_color=COLORS["danger"]
                 )
             elif not is_qwen_model_ready():
                 self._chat_model_badge.configure(
-                    text=t("PROMPT_LAB_BADGE_NO_MODEL"), text_color=COLORS["warning"]
+                    text="⚠ Model not downloaded", text_color=COLORS["warning"]
                 )
             else:
                 _active_key = get_active_llm_key()
                 self._chat_model_badge.configure(
-                    text=t("PROMPT_LAB_MODEL_BADGE", model=_active_key),
+                    text=f"model: {_active_key}",
                     text_color=COLORS["success"],
                 )
         except Exception:
@@ -4836,14 +4842,14 @@ class KoKoFishUI:
 
         if not is_llm_available():
             messagebox.showerror(
-                t("MAIN_TAB_PROMPT_LAB"),
-                t("PROMPT_LAB_MSG_NO_LLM"),
+                "Prompt Lab",
+                "llama-cpp-python not installed.\nInstall it in Settings.",
             )
             return
         if not is_qwen_model_ready():
             messagebox.showerror(
-                t("MAIN_TAB_PROMPT_LAB"),
-                t("PROMPT_LAB_MSG_NO_MODEL"),
+                "Prompt Lab",
+                "LLM model not downloaded.\nOpen Settings -> Download Model.",
             )
             return
 
@@ -4878,10 +4884,10 @@ class KoKoFishUI:
         self._chat_clear_attachment()
         self._chat_busy = True
         self._chat_send_btn.configure(state="disabled", text="…")
-        self._chat_status.configure(text=t("PROMPT_LAB_STATUS_THINKING"))
+        self._chat_status.configure(text="Thinking…")
 
         # Show user bubble (display only the typed text, not the whole file dump)
-        self._chat_append("user_label", t("PROMPT_LAB_LABEL_YOU") + "\n")
+        self._chat_append("user_label", "You\n")
         if att:
             att_note = f"[📎 {os.path.basename(att['path'])}]  " if att else ""
             self._chat_append("muted", att_note)
@@ -4891,7 +4897,7 @@ class KoKoFishUI:
         self._chat_history.append({"role": "user", "content": llm_text})
 
         # Start assistant bubble header
-        self._chat_append("asst_label", t("PROMPT_LAB_LABEL_ASSISTANT") + "\n")
+        self._chat_append("asst_label", "Assistant\n")
 
         def _on_token(token: str):
             self.root.after(0, lambda t=token: self._chat_append("asst_text", t))
@@ -4930,7 +4936,7 @@ class KoKoFishUI:
     def _chat_send_done(self):
         """Re-enable the send button after response completes."""
         self._chat_busy = False
-        self._chat_send_btn.configure(state="normal", text=t("PROMPT_LAB_BTN_SEND"))
+        self._chat_send_btn.configure(state="normal", text="Send  ▶")
         self._chat_status.configure(text="")
 
     def _chat_clear(self):
@@ -5009,12 +5015,12 @@ class KoKoFishUI:
             return f
 
         # --- GPU / Acceleration ---
-        section_header(main, t("SETTINGS_HEADER_GPU"))
+        section_header(main, "🖥  GPU Acceleration")
 
         cuda_row = setting_row(main)
         ctk.CTkLabel(
             cuda_row,
-            text=t("SETTINGS_GPU_CUDA_LABEL"),
+            text="NVIDIA CUDA Acceleration",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
@@ -5043,19 +5049,19 @@ class KoKoFishUI:
         if not has_gpu:
             self.cuda_switch.configure(state="disabled")
             self.cuda_status_label.configure(
-                text=t("SETTINGS_GPU_NO_GPU"),
+                text="⚠  No NVIDIA GPU detected",
                 text_color=COLORS["warning"],
             )
         elif cuda_installed:
             gpu_name = get_nvidia_gpu_name()
             self.cuda_status_label.configure(
-                text=t("SETTINGS_GPU_DETECTED", gpu_name=gpu_name),
+                text=f"✅  {gpu_name}",
                 text_color=COLORS["success"],
             )
         else:
             gpu_name = get_nvidia_gpu_name()
             self.cuda_status_label.configure(
-                text=t("SETTINGS_GPU_ENABLE_CUDA", gpu_name=gpu_name),
+                text=f"🖥  {gpu_name} — enable to download CUDA support",
                 text_color=COLORS["text_secondary"],
             )
             
@@ -5063,7 +5069,7 @@ class KoKoFishUI:
         notice_row = setting_row(main)
         ctk.CTkLabel(
             notice_row,
-            text=t("SETTINGS_GPU_CUDA_NOTE"),
+            text="Note:CUDA is the best option — enabling it allows much faster and quality results",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["warning"],
         ).pack(side="left", padx=15, pady=12)
@@ -5073,14 +5079,14 @@ class KoKoFishUI:
         mem_row = setting_row(main)
         ctk.CTkLabel(
             mem_row,
-            text=t("SETTINGS_GPU_MEM_SAVER_LABEL"),
+            text="Memory Saver Mode",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
 
         ctk.CTkLabel(
             mem_row,
-            text=t("SETTINGS_GPU_MEM_SAVER_DESC"),
+            text="Unload inactive model to save RAM",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_muted"],
         ).pack(side="left", padx=(0, 10), pady=12)
@@ -5101,13 +5107,13 @@ class KoKoFishUI:
 
         if not _is_kokoro:
             # --- Fish-Speech Path (hidden in Kokoro mode) ---
-            section_header(main, t("SETTINGS_HEADER_FISH_ENGINE"))
+            section_header(main, "🐟  Fish-Speech Engine")
 
             path_row = setting_row(main)
 
             ctk.CTkLabel(
                 path_row,
-                text=t("SETTINGS_FISH_PATH_LABEL"),
+                text="Model Path",
                 font=(FONT_FAMILY, 13),
                 text_color=COLORS["text_primary"],
             ).pack(side="left", padx=15, pady=12)
@@ -5127,7 +5133,7 @@ class KoKoFishUI:
 
             ctk.CTkButton(
                 path_row,
-                text=t("SETTINGS_FISH_BTN_BROWSE"),
+                text="📂  Browse",
                 width=90,
                 height=30,
                 corner_radius=6,
@@ -5154,11 +5160,11 @@ class KoKoFishUI:
                 from utils import is_flash_attn_installed, install_flash_attn
                 fa_row = setting_row(main)
                 ctk.CTkLabel(
-                    fa_row, text=t("SETTINGS_FISH_FLASH_ATTN_LABEL"),
+                    fa_row, text="Flash Attention",
                     font=(FONT_FAMILY, 13), text_color=COLORS["text_primary"],
                 ).pack(side="left", padx=15, pady=12)
                 ctk.CTkLabel(
-                    fa_row, text=t("SETTINGS_FISH_FLASH_ATTN_DESC"),
+                    fa_row, text="Speeds up S1/S1-Mini generation 3–5x on long text",
                     font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"],
                 ).pack(side="left", padx=(0, 10), pady=12)
 
@@ -5167,13 +5173,13 @@ class KoKoFishUI:
                 _fa_win = _sys.platform == "win32"
 
                 if _fa_installed:
-                    _fa_text  = t("SETTINGS_FISH_FLASH_ATTN_INSTALLED")
+                    _fa_text  = "✅  Installed"
                     _fa_color = COLORS["success"]
                 elif _fa_win:
-                    _fa_text  = t("SETTINGS_FISH_FLASH_ATTN_NO_WIN")
+                    _fa_text  = "⚠  Not available on Windows — generation still works"
                     _fa_color = COLORS["text_muted"]
                 else:
-                    _fa_text  = t("SETTINGS_FISH_FLASH_ATTN_NOT_INSTALLED")
+                    _fa_text  = "⚠  Not installed — generation will be slower"
                     _fa_color = COLORS["warning"]
 
                 fa_status_lbl = ctk.CTkLabel(
@@ -5183,13 +5189,13 @@ class KoKoFishUI:
 
                 if not _fa_installed and not _fa_win:
                     def _install_fa(lbl=fa_status_lbl):
-                        lbl.configure(text=t("SETTINGS_FISH_FLASH_ATTN_INSTALLING"), text_color=COLORS["text_muted"])
+                        lbl.configure(text="⏳  Installing…", text_color=COLORS["text_muted"])
                         def _done(ok, msg):
                             def _ui():
                                 if ok:
-                                    lbl.configure(text=t("SETTINGS_FISH_FLASH_ATTN_INSTALLED_RESTART"), text_color=COLORS["success"])
+                                    lbl.configure(text="✅  Installed — restart to activate", text_color=COLORS["success"])
                                 else:
-                                    lbl.configure(text=t("SETTINGS_FISH_FLASH_ATTN_FAILED"), text_color=COLORS["danger"])
+                                    lbl.configure(text="❌  Install failed — see log", text_color=COLORS["danger"])
                             self.root.after(0, _ui)
                         install_flash_attn(
                             on_progress=lambda m, _f: self.root.after(
@@ -5198,7 +5204,7 @@ class KoKoFishUI:
                             on_complete=_done,
                         )
                     ctk.CTkButton(
-                        fa_row, text=t("SETTINGS_BTN_INSTALL"), width=90, height=28, corner_radius=6,
+                        fa_row, text="⬇  Install", width=90, height=28, corner_radius=6,
                         fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
                         font=(FONT_FAMILY, 11), command=_install_fa,
                     ).pack(side="right", padx=(0, 5), pady=12)
@@ -5242,23 +5248,23 @@ class KoKoFishUI:
             _chunk_sl.pack(side="right", padx=15, pady=10)
         else:
             # --- Kokoro Engine Info ---
-            section_header(main, t("SETTINGS_HEADER_KOKORO_ENGINE"))
+            section_header(main, "🎙  Kokoro Engine")
             kokoro_row = setting_row(main)
             ctk.CTkLabel(
                 kokoro_row,
-                text=t("SETTINGS_KOKORO_MODEL_LABEL"),
+                text="Model",
                 font=(FONT_FAMILY, 13),
                 text_color=COLORS["text_primary"],
             ).pack(side="left", padx=15, pady=12)
             ctk.CTkLabel(
                 kokoro_row,
-                text=t("SETTINGS_KOKORO_MODEL_DESC"),
+                text="kokoro-v1.0 (int8 quantized)  •  54 preset voices  •  24 kHz",
                 font=(FONT_FAMILY, 11),
                 text_color=COLORS["text_secondary"],
             ).pack(side="left", padx=5, pady=12)
             ctk.CTkLabel(
                 kokoro_row,
-                text=t("SETTINGS_KOKORO_READY"),
+                text="✅  Ready",
                 font=(FONT_FAMILY, 11),
                 text_color=COLORS["success"],
             ).pack(side="right", padx=15, pady=12)
@@ -5269,23 +5275,23 @@ class KoKoFishUI:
         engine_row = setting_row(main)
         ctk.CTkLabel(
             engine_row,
-            text=t("SETTINGS_ENGINE_LABEL"),
+            text="Engine Architecture",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
 
         ctk.CTkLabel(
             engine_row,
-            text=t("SETTINGS_ENGINE_DESC"),
+            text="Core neural logic framework",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_muted"],
         ).pack(side="left", padx=(0, 10), pady=12)
 
         engine_options = [
-            t("SETTINGS_ENGINE_OPT_KOKORO"),
-            t("SETTINGS_ENGINE_OPT_FISH14"),
-            t("SETTINGS_ENGINE_OPT_S1MINI"),
-            t("SETTINGS_ENGINE_OPT_S1"),
+            "Kokoro — Fast, No Cloning (1-2 GB RAM)",
+            "Fish-Speech 1.4 — Voice Cloning, No Account (1-4 GB RAM)",
+            "S1 Mini — Voice Cloning, HF Account Required (2-4 GB RAM)",
+            "S1 Full — High Quality Cloning, HF Account Required (6-8 GB RAM)",
         ]
 
         # Determine current engine from settings.engine field
@@ -5315,20 +5321,20 @@ class KoKoFishUI:
         self.engine_menu.pack(side="right", padx=15, pady=12)
 
         # --- Status ---
-        section_header(main, t("SETTINGS_HEADER_SYSTEM_STATUS"))
+        section_header(main, "📊  System Status")
 
         # RAM readout
         ram_row = setting_row(main)
         ctk.CTkLabel(
             ram_row,
-            text=t("SETTINGS_SYSTEM_RAM_LABEL"),
+            text="RAM Usage",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
 
         self.ram_label = ctk.CTkLabel(
             ram_row,
-            text=t("SETTINGS_SYSTEM_CALCULATING"),
+            text="Calculating...",
             font=(FONT_FAMILY, 12),
             text_color=COLORS["text_secondary"],
         )
@@ -5338,14 +5344,14 @@ class KoKoFishUI:
         vram_row = setting_row(main)
         ctk.CTkLabel(
             vram_row,
-            text=t("SETTINGS_SYSTEM_VRAM_LABEL"),
+            text="VRAM Usage",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
 
         self.vram_label = ctk.CTkLabel(
             vram_row,
-            text=t("SETTINGS_SYSTEM_CALCULATING"),
+            text="Calculating...",
             font=(FONT_FAMILY, 12),
             text_color=COLORS["text_secondary"],
         )
@@ -5355,14 +5361,14 @@ class KoKoFishUI:
         cpu_row = setting_row(main)
         ctk.CTkLabel(
             cpu_row,
-            text=t("SETTINGS_SYSTEM_CPU_LABEL"),
+            text="CPU Usage",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
 
         self.cpu_label = ctk.CTkLabel(
             cpu_row,
-            text=t("SETTINGS_SYSTEM_CALCULATING"),
+            text="Calculating...",
             font=(FONT_FAMILY, 12),
             text_color=COLORS["text_secondary"],
         )
@@ -5375,13 +5381,13 @@ class KoKoFishUI:
         cpu_thread_row = setting_row(main)
         ctk.CTkLabel(
             cpu_thread_row,
-            text=t("SETTINGS_SYSTEM_CPU_THREADS_LABEL"),
+            text="CPU Thread Limit",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=10)
         ctk.CTkLabel(
             cpu_thread_row,
-            text=t("SETTINGS_SYSTEM_CPU_THREADS_DESC"),
+            text="Limits threads used for CPU inference — prevents system freeze. 0 = all cores.",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_muted"],
         ).pack(side="left", padx=(0, 10), pady=10)
@@ -5433,13 +5439,13 @@ class KoKoFishUI:
         ffmpeg_row = setting_row(main)
         ctk.CTkLabel(
             ffmpeg_row,
-            text=t("SETTINGS_SYSTEM_FFMPEG_LABEL"),
+            text="FFmpeg Status",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
 
         ffmpeg_ok = is_ffmpeg_available()
-        ffmpeg_text = t("SETTINGS_SYSTEM_FFMPEG_FOUND") if ffmpeg_ok else t("SETTINGS_SYSTEM_FFMPEG_NOT_FOUND")
+        ffmpeg_text = "✅  Found" if ffmpeg_ok else "❌  Not found — install ffmpeg for MP3 export"
         ffmpeg_color = COLORS["success"] if ffmpeg_ok else COLORS["danger"]
         ctk.CTkLabel(
             ffmpeg_row,
@@ -5452,7 +5458,7 @@ class KoKoFishUI:
         tts_status_row = setting_row(main)
         ctk.CTkLabel(
             tts_status_row,
-            text=t("SETTINGS_SYSTEM_TTS_LABEL"),
+            text="TTS Engine",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
@@ -5460,15 +5466,11 @@ class KoKoFishUI:
         # Reflect actual engine state rather than always showing "Not loaded"
         if self.tts and self.tts.is_loaded:
             _prov = getattr(self.tts, "provider", "")
-            if _prov == "cuda":
-                _tts_text = t("SETTINGS_SYSTEM_TTS_LOADED_GPU")
-            elif _prov == "cpu":
-                _tts_text = t("SETTINGS_SYSTEM_TTS_LOADED_CPU")
-            else:
-                _tts_text = t("SETTINGS_SYSTEM_TTS_LOADED")
+            _tag  = " (GPU)" if _prov == "cuda" else " (CPU)" if _prov == "cpu" else ""
+            _tts_text  = f"✅  Loaded{_tag}"
             _tts_color = COLORS["success"]
         else:
-            _tts_text  = t("SETTINGS_SYSTEM_NOT_LOADED")
+            _tts_text  = "⏳  Not loaded"
             _tts_color = COLORS["text_muted"]
 
         self.tts_status_label = ctk.CTkLabel(
@@ -5483,12 +5485,12 @@ class KoKoFishUI:
         stt_status_row = setting_row(main)
         ctk.CTkLabel(
             stt_status_row,
-            text=t("SETTINGS_SYSTEM_STT_LABEL"),
+            text="STT Engine",
             font=(FONT_FAMILY, 13),
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
 
-        _stt_text  = t("SETTINGS_SYSTEM_STT_LOADED") if (self.stt and self.stt.is_loaded) else t("SETTINGS_SYSTEM_NOT_LOADED")
+        _stt_text  = "✅  Loaded" if (self.stt and self.stt.is_loaded) else "⏳  Not loaded"
         _stt_color = COLORS["success"] if (self.stt and self.stt.is_loaded) else COLORS["text_muted"]
         self.stt_status_label = ctk.CTkLabel(
             stt_status_row,
@@ -5499,7 +5501,7 @@ class KoKoFishUI:
         self.stt_status_label.pack(side="right", padx=15, pady=12)
 
         # --- AI Features ---
-        section_header(main, t("SETTINGS_HEADER_AI_FEATURES"))
+        section_header(main, "🤖  AI Features — Language Model")
 
         from tag_suggester import (
             is_llm_available as _llm_avail,
@@ -5512,25 +5514,25 @@ class KoKoFishUI:
         # llama-cpp-python row
         llama_row = setting_row(main)
         ctk.CTkLabel(
-            llama_row, text=t("SETTINGS_AI_LLAMA_LABEL"),
+            llama_row, text="llama-cpp-python",
             font=(FONT_FAMILY, 13), text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
         ctk.CTkLabel(
-            llama_row, text=t("SETTINGS_AI_LLAMA_DESC"),
+            llama_row, text="Required for AI tags, grammar check, translation, Assisted Flow",
             font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"],
         ).pack(side="left", padx=(0, 10), pady=12)
 
         _llama_installed = _llm_avail()
         self.llama_status_label = ctk.CTkLabel(
             llama_row,
-            text=t("SETTINGS_AI_INSTALLED") if _llama_installed else t("SETTINGS_AI_NOT_INSTALLED"),
+            text="✅  Installed" if _llama_installed else "❌  Not installed",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["success"] if _llama_installed else COLORS["danger"],
         )
         self.llama_status_label.pack(side="right", padx=(5, 15), pady=12)
         if not _llama_installed:
             self.llama_install_btn = ctk.CTkButton(
-                llama_row, text=t("SETTINGS_BTN_INSTALL"), width=90, height=28, corner_radius=6,
+                llama_row, text="⬇  Install", width=90, height=28, corner_radius=6,
                 fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
                 font=(FONT_FAMILY, 11), command=self._install_llama_cpp,
             )
@@ -5539,7 +5541,7 @@ class KoKoFishUI:
         # LLM model selector row
         llm_sel_row = setting_row(main)
         ctk.CTkLabel(
-            llm_sel_row, text=t("SETTINGS_AI_LLM_MODEL_LABEL"),
+            llm_sel_row, text="LLM Model",
             font=(FONT_FAMILY, 13), text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
 
@@ -5552,28 +5554,28 @@ class KoKoFishUI:
             # Update the llama-cpp status row to reflect the backend in use
             if _is_ollama_key:
                 self.llama_status_label.configure(
-                    text=t("SETTINGS_AI_NOT_NEEDED_OLLAMA"),
+                    text="ℹ  Not needed (Ollama model)",
                     text_color=COLORS["text_muted"],
                 )
             else:
                 self.llama_status_label.configure(
-                    text=t("SETTINGS_AI_INSTALLED") if _llama_installed else t("SETTINGS_AI_NOT_INSTALLED"),
+                    text="✅  Installed" if _llama_installed else "❌  Not installed",
                     text_color=COLORS["success"] if _llama_installed else COLORS["danger"],
                 )
             # Pass the key directly so we check the new model's file,
             # not whatever get_active_llm_key() happens to return right now.
             _qw_installed = _qwen_ready(key)
-            _not_ready_label = t("SETTINGS_AI_NOT_PULLED") if _is_ollama_key else t("SETTINGS_AI_NOT_DOWNLOADED")
+            _not_ready_label = "❌  Not pulled" if _is_ollama_key else "❌  Not downloaded"
             self.qwen_status_label.configure(
-                text=t("SETTINGS_AI_READY") if _qw_installed else _not_ready_label,
+                text="✅  Ready" if _qw_installed else _not_ready_label,
                 text_color=COLORS["success"] if _qw_installed else COLORS["danger"],
             )
             # If model not present, offer to download / pull immediately
             if not _qw_installed and (_llama_installed or _is_ollama_key):
                 _action = "pull" if _is_ollama_key else "download"
                 if messagebox.askyesno(
-                    t("SETTINGS_AI_MODEL_NOT_AVAILABLE_TITLE"),
-                    t("SETTINGS_AI_MODEL_NOT_AVAILABLE_BODY", key=key, action=_action),
+                    "Model Not Available",
+                    f"'{key}' has not been {_action}ed yet.\n\nDo it now?",
                     parent=self.root,
                 ):
                     self._download_qwen_from_settings()
@@ -5593,28 +5595,28 @@ class KoKoFishUI:
         # Qwen/LLM model status + download row
         qwen_row = setting_row(main)
         ctk.CTkLabel(
-            qwen_row, text=t("SETTINGS_AI_MODEL_STATUS_LABEL"),
+            qwen_row, text="Model Status",
             font=(FONT_FAMILY, 13), text_color=COLORS["text_primary"],
         ).pack(side="left", padx=15, pady=12)
 
         _qwen_installed = _qwen_ready()
         self.qwen_status_label = ctk.CTkLabel(
             qwen_row,
-            text=t("SETTINGS_AI_READY") if _qwen_installed else (t("SETTINGS_AI_INSTALL_LLAMA_FIRST") if not _llama_installed else t("SETTINGS_AI_NOT_DOWNLOADED")),
+            text="✅  Ready" if _qwen_installed else ("⏳  Install llama-cpp first" if not _llama_installed else "❌  Not downloaded"),
             font=(FONT_FAMILY, 11),
             text_color=COLORS["success"] if _qwen_installed else COLORS["text_muted"],
         )
         self.qwen_status_label.pack(side="right", padx=(5, 15), pady=12)
 
         ctk.CTkButton(
-            qwen_row, text=t("SETTINGS_AI_BTN_EDIT_PROMPTS"), width=110, height=28, corner_radius=6,
+            qwen_row, text="✏  Edit Prompts", width=110, height=28, corner_radius=6,
             fg_color="#5a3e8a", hover_color="#7b5ea7", font=(FONT_FAMILY, 11),
             command=self._open_prompt_editor,
         ).pack(side="right", padx=(0, 5), pady=12)
 
         if not _qwen_installed and _llama_installed:
             ctk.CTkButton(
-                qwen_row, text=t("SETTINGS_AI_BTN_DOWNLOAD_MODEL"), width=140, height=28, corner_radius=6,
+                qwen_row, text="⬇  Download Model", width=140, height=28, corner_radius=6,
                 fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
                 font=(FONT_FAMILY, 11), command=self._download_qwen_from_settings,
             ).pack(side="right", padx=(0, 5), pady=12)
@@ -5630,12 +5632,21 @@ class KoKoFishUI:
         self._llama_log_row.pack_forget()  # hidden until needed
 
         # --- Credits ---
-        section_header(main, t("SETTINGS_HEADER_CREDITS"))
+        section_header(main, "ℹ  Credits")
 
         credits_frame = setting_row(main)
+        credits_text = (
+            "KoKoFish uses the following open-source libraries:\n"
+            "• Fish-Speech (Apache 2.0) — TTS engine by Fish Audio\n"
+            "• faster-whisper (MIT) — STT engine by SYSTRAN\n"
+            "• CustomTkinter (MIT) — GUI framework by Tom Schimansky\n"
+            "• PyTorch (BSD 3-Clause) — ML backend by Meta\n"
+            "• pydub (MIT) — Audio processing\n"
+            "• See CREDITS.txt for full license details."
+        )
         ctk.CTkLabel(
             credits_frame,
-            text=t("SETTINGS_CREDITS_TEXT"),
+            text=credits_text,
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_muted"],
             justify="left",
@@ -5654,7 +5665,7 @@ class KoKoFishUI:
     def _tts_browse_file(self, event=None):
         """Open file dialog to add a file to the playlist."""
         paths = filedialog.askopenfilenames(
-            title=t("SPEECH_LAB_DIALOG_FILE_SELECT"),
+            title="Select text files",
             filetypes=[
                 ("Text files", "*.txt *.pdf *.docx *.epub"),
                 ("All files", "*.*"),
@@ -5696,7 +5707,7 @@ class KoKoFishUI:
             logger.info("Added to playlist: %s (%d chars)", name, len(text))
         except Exception as exc:
             logger.error("Failed to read file: %s", exc)
-            messagebox.showerror(t("SPEECH_LAB_MSG_FILE_ERROR_TITLE"), t("SPEECH_LAB_MSG_FILE_ERROR_BODY", error=exc))
+            messagebox.showerror("Error", f"Could not read file:\n{exc}")
 
     def _rebuild_playlist_ui(self):
         """Rebuild the playlist list in the scrollable frame."""
@@ -5708,7 +5719,7 @@ class KoKoFishUI:
         if not self._playlist_items:
             self.playlist_empty_label = ctk.CTkLabel(
                 self.playlist_frame,
-                text=t("SPEECH_LAB_PLAYLIST_EMPTY"),
+                text="No files in queue. Drop files above to add them.",
                 font=(FONT_FAMILY, 12),
                 text_color=COLORS["text_muted"],
             )
@@ -5859,16 +5870,16 @@ class KoKoFishUI:
                     text_color=COLORS["text_muted"], width=10,
                 ).pack(side="left")
 
-                blend_options = [t("SPEECH_LAB_BLEND_PLACEHOLDER")] + voice_options
-                item_blend = item.get("blend_voice", "") or t("SPEECH_LAB_BLEND_PLACEHOLDER")
+                blend_options = ["— blend —"] + voice_options
+                item_blend = item.get("blend_voice", "") or "— blend —"
                 if item_blend not in blend_options:
-                    item_blend = t("SPEECH_LAB_BLEND_PLACEHOLDER")
+                    item_blend = "— blend —"
 
                 blend_var = ctk.StringVar(value=item_blend)
 
                 def _on_blend_change(v, i=idx, bvar=blend_var):
                     val = bvar.get()
-                    self._playlist_items[i]["blend_voice"] = "" if val == t("SPEECH_LAB_BLEND_PLACEHOLDER") else val
+                    self._playlist_items[i]["blend_voice"] = "" if val == "— blend —" else val
 
                 ctk.CTkOptionMenu(
                     row,
@@ -5914,7 +5925,7 @@ class KoKoFishUI:
                 )
                 _blend_slider.set(blend_ratio_val)
                 _blend_slider.pack(side="left", padx=(0, 1))
-                self._make_tooltip(_blend_slider, t("SPEECH_LAB_TOOLTIP_BLEND_RATIO"))
+                self._make_tooltip(_blend_slider, "Blend ratio — left = more primary voice, right = more blend voice")
                 blend_ratio_label.pack(side="left", padx=(0, 4))
 
             # ── Assisted Flow toggle ─────────────────────────────────────
@@ -5924,7 +5935,7 @@ class KoKoFishUI:
                 self._playlist_items[i]["assisted_flow"] = v.get()
 
             ctk.CTkLabel(
-                row, text=t("SPEECH_LAB_ASSISTED_FLOW_LABEL"),
+                row, text="Assisted Flow",
                 font=(FONT_FAMILY, 9),
                 text_color=COLORS["accent_light"] if _af_llm_ok else COLORS["text_muted"],
                 width=18,
@@ -5945,12 +5956,12 @@ class KoKoFishUI:
                 button_hover_color=COLORS["accent"],
             )
             _af_switch.pack(side="left", padx=(0, 2))
-            self._make_tooltip(_af_switch, t("SPEECH_LAB_TOOLTIP_ASSISTED_FLOW"))
+            self._make_tooltip(_af_switch, "Assisted Flow — AI enhances text phrasing before TTS")
 
             if not _af_llm_ok:
                 ctk.CTkLabel(
                     row,
-                    text=t("SPEECH_LAB_WARN_SETTINGS"),
+                    text="⚠ Settings",
                     font=(FONT_FAMILY, 8),
                     text_color=COLORS["text_muted"],
                 ).pack(side="left", padx=(0, 2))
@@ -5968,14 +5979,14 @@ class KoKoFishUI:
                     if _item_lang != "English":
                         _auto_lbl = ctk.CTkLabel(
                             row,
-                            text=t("SPEECH_LAB_AUTO_TRANSLATE_BADGE", lang=_item_lang),
+                            text=f"Auto→{_item_lang[:3]}",
                             font=(FONT_FAMILY, 8),
                             text_color="#f4a261",
                         )
                         _auto_lbl.pack(side="left", padx=(4, 2))
                         self._make_tooltip(
                             _auto_lbl,
-                            t("SPEECH_LAB_AUTO_TRANSLATE_TOOLTIP", lang=_item_lang),
+                            f"Text is automatically translated to {_item_lang} for this voice",
                         )
                 else:
                     # Non-Kokoro: toggle + language dropdown + tone dropdown
@@ -5986,7 +5997,7 @@ class KoKoFishUI:
                         self._playlist_items[i]["translate"] = v.get()
 
                     ctk.CTkLabel(
-                        row, text=t("SPEECH_LAB_TRANSLATE_LABEL"),
+                        row, text="Translate",
                         font=(FONT_FAMILY, 9),
                         text_color=COLORS["accent_light"],
                         width=18,
@@ -6008,7 +6019,7 @@ class KoKoFishUI:
                     _tr_switch.pack(side="left", padx=(0, 2))
                     self._make_tooltip(
                         _tr_switch,
-                        t("SPEECH_LAB_TOOLTIP_TRANSLATE"),
+                        "Translate — AI translates text into the selected language before generating speech",
                     )
 
                     saved_lang = item.get("translate_lang", "") or TRANSLATE_LANGUAGES[0]
@@ -6064,7 +6075,7 @@ class KoKoFishUI:
                 **_ib,
             )
             _rb.pack(side="right", padx=(0, 6))
-            self._make_tooltip(_rb, t("SPEECH_LAB_TOOLTIP_REMOVE_ITEM"))
+            self._make_tooltip(_rb, "Remove item from playlist")
 
             # After audio exists (near ✕): play/pause 🔊, save 📁, info ⓘ
             if has_audio:
@@ -6077,7 +6088,7 @@ class KoKoFishUI:
                     **_ib,
                 )
                 _sb.pack(side="right", padx=(0, 2))
-                self._make_tooltip(_sb, t("SPEECH_LAB_TOOLTIP_SAVE_AUDIO"))
+                self._make_tooltip(_sb, "Save audio to file")
                 _pb = ctk.CTkButton(
                     row, text="⏸" if is_previewing else "▶",
                     fg_color=COLORS["success"] if is_previewing else COLORS["bg_input"],
@@ -6087,7 +6098,7 @@ class KoKoFishUI:
                     **_ib,
                 )
                 _pb.pack(side="right", padx=(0, 2))
-                self._make_tooltip(_pb, t("SPEECH_LAB_TOOLTIP_PAUSE_PREVIEW") if is_previewing else t("SPEECH_LAB_TOOLTIP_PLAY_PREVIEW"))
+                self._make_tooltip(_pb, "Pause preview" if is_previewing else "Play audio preview")
                 _ib_btn = ctk.CTkButton(
                     row, text="ⓘ",
                     fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
@@ -6098,7 +6109,7 @@ class KoKoFishUI:
                     **_ib,
                 )
                 _ib_btn.pack(side="right", padx=(0, 2))
-                self._make_tooltip(_ib_btn, t("SPEECH_LAB_TOOLTIP_EDIT_METADATA"))
+                self._make_tooltip(_ib_btn, "Edit audio metadata")
 
             # After voice dropdowns:
             #  Active  → ⏸ pause  ⊘ cancel
@@ -6113,7 +6124,7 @@ class KoKoFishUI:
                     **_ib,
                 )
                 _pb.pack(side="left", padx=(4, 2))
-                self._make_tooltip(_pb, t("SPEECH_LAB_TOOLTIP_PAUSE_CONVERT"))
+                self._make_tooltip(_pb, "Pause conversion")
                 _cb = ctk.CTkButton(
                     row, text="⊘",
                     fg_color=COLORS["danger"], hover_color="#d43d62",
@@ -6121,7 +6132,7 @@ class KoKoFishUI:
                     **_ib,
                 )
                 _cb.pack(side="left", padx=(0, 2))
-                self._make_tooltip(_cb, t("SPEECH_LAB_TOOLTIP_CANCEL_CONVERT"))
+                self._make_tooltip(_cb, "Cancel conversion")
             elif is_queued:
                 _cb = ctk.CTkButton(
                     row, text="⊘",
@@ -6130,7 +6141,7 @@ class KoKoFishUI:
                     **_ib,
                 )
                 _cb.pack(side="left", padx=(4, 2))
-                self._make_tooltip(_cb, t("SPEECH_LAB_TOOLTIP_REMOVE_QUEUE"))
+                self._make_tooltip(_cb, "Remove from queue")
             else:
                 _cvt = ctk.CTkButton(
                     row, text="▶",
@@ -6141,7 +6152,7 @@ class KoKoFishUI:
                     **_ib,
                 )
                 _cvt.pack(side="left", padx=(4, 2))
-                self._make_tooltip(_cvt, t("SPEECH_LAB_TOOLTIP_RECONVERT") if has_audio else t("SPEECH_LAB_TOOLTIP_CONVERT"))
+                self._make_tooltip(_cvt, "Re-convert to speech" if has_audio else "Convert to speech")
 
     def _open_editor(self, index: int):
         """Open the text editor window for a playlist item."""
@@ -6173,8 +6184,8 @@ class KoKoFishUI:
 
         if has_audio:
             if not messagebox.askyesno(
-                t("SPEECH_LAB_MSG_REGEN_TITLE"),
-                t("SPEECH_LAB_MSG_REGEN_BODY", name=item['name']),
+                "Re-generate",
+                f"'{item['name']}' already has audio.\nRe-generate it?",
                 parent=self.root,
             ):
                 return
@@ -6183,12 +6194,12 @@ class KoKoFishUI:
         if self._is_playing:
             self._single_item_queue.append(index)
             self._rebuild_playlist_ui()
-            self.tts_status.configure(text=t("SPEECH_LAB_STATUS_QUEUED", name=item['name']))
+            self.tts_status.configure(text=f"Queued: {item['name']}")
             return
 
         # Nothing running — start immediately
         if not self.tts.is_loaded:
-            self.tts_status.configure(text=t("SPEECH_LAB_STATUS_LOADING_MODEL"))
+            self.tts_status.configure(text="Loading model…")
             for btn in (self.btn_play, self.btn_pause, self.btn_save_mp3):
                 btn.configure(state="disabled")
             self._ensure_tts_loaded(lambda: self._process_single_item(index))
@@ -6209,7 +6220,7 @@ class KoKoFishUI:
             self.root.after(200, lambda: self._process_single_item(next_idx))
         else:
             self._rebuild_playlist_ui()
-            self.tts_status.configure(text=t("SPEECH_LAB_STATUS_DONE"))
+            self.tts_status.configure(text="Done")
 
     def _cancel_item(self, index: int):
         """Cancel an actively generating item or remove it from the queue."""
@@ -6223,11 +6234,11 @@ class KoKoFishUI:
                 self.root.after(200, lambda: self._process_single_item(next_idx))
             else:
                 self._rebuild_playlist_ui()
-                self.tts_status.configure(text=t("SPEECH_LAB_STATUS_CANCELLED"))
+                self.tts_status.configure(text="Cancelled")
         elif index in self._single_item_queue:
             self._single_item_queue.remove(index)
             self._rebuild_playlist_ui()
-            self.tts_status.configure(text=t("SPEECH_LAB_STATUS_REMOVED_FROM_QUEUE", name=self._playlist_items[index]['name']))
+            self.tts_status.configure(text=f"Removed from queue: {self._playlist_items[index]['name']}")
 
     def _save_item_audio(self, index: int):
         """Save the generated audio for a single playlist item to a user-chosen path."""
@@ -6236,7 +6247,7 @@ class KoKoFishUI:
         item = self._playlist_items[index]
         src = item.get("audio_path", "")
         if not src or not os.path.isfile(src):
-            messagebox.showwarning(t("SPEECH_LAB_MSG_SAVE_AUDIO_TITLE"), t("SPEECH_LAB_MSG_SAVE_AUDIO_NO_GEN"), parent=self.root)
+            messagebox.showwarning("Save Audio", "No generated audio for this item yet.", parent=self.root)
             return
         from tkinter.filedialog import asksaveasfilename
         stem = os.path.splitext(item["name"])[0]
@@ -6245,7 +6256,7 @@ class KoKoFishUI:
             defaultextension=".mp3",
             filetypes=[("MP3 audio", "*.mp3"), ("WAV audio", "*.wav"), ("All files", "*.*")],
             initialfile=f"{stem}.mp3",
-            title=t("SPEECH_LAB_DIALOG_SAVE_AUDIO_AS"),
+            title="Save audio as…",
         )
         if not dest:
             return
@@ -6254,9 +6265,9 @@ class KoKoFishUI:
             audio = AudioSegment.from_wav(src)
             fmt = os.path.splitext(dest)[1].lstrip(".").lower() or "mp3"
             audio.export(dest, format=fmt)
-            self.tts_status.configure(text=t("SPEECH_LAB_STATUS_SAVED", filename=os.path.basename(dest)))
+            self.tts_status.configure(text=f"Saved: {os.path.basename(dest)}")
         except Exception as exc:
-            messagebox.showerror(t("SPEECH_LAB_MSG_SAVE_AUDIO_TITLE"), t("SPEECH_LAB_MSG_SAVE_AUDIO_FAILED", error=exc), parent=self.root)
+            messagebox.showerror("Save Audio", f"Export failed:\n{exc}", parent=self.root)
 
     def _open_audio_meta_editor(self, audio_path: str):
         """Open a window to view/edit audio file metadata using FFmpeg."""
@@ -6494,15 +6505,15 @@ class KoKoFishUI:
         self._rebuild_playlist_ui()
 
     def _on_speed_change(self, value):
-        self.speed_label.configure(text=t("SPEECH_LAB_SPEED_LABEL", value=f"{value:.1f}"))
+        self.speed_label.configure(text=f"Speed: {value:.1f}x")
         self.settings.speed = round(value, 1)
 
     def _on_volume_change(self, value):
-        self.vol_label.configure(text=t("SPEECH_LAB_VOLUME_LABEL", value=int(value)))
+        self.vol_label.configure(text=f"Volume: {int(value)}%")
         self.settings.volume = int(value)
 
     def _on_cadence_change(self, value):
-        self.cad_label.configure(text=t("SPEECH_LAB_CADENCE_LABEL", value=int(value)))
+        self.cad_label.configure(text=f"Cadence: {int(value)}%")
         self.settings.cadence = int(value)
 
     def _ensure_tts_loaded(self, on_success):
@@ -6513,7 +6524,7 @@ class KoKoFishUI:
             
         # Create themed popup
         popup = ctk.CTkToplevel(self.root)
-        popup.title(t("SPEECH_LAB_ENGINE_BOOT_TITLE"))
+        popup.title("Starting AI Engine")
         popup.geometry("350x140")
         popup.resizable(False, False)
         popup.transient(self.root)
@@ -6527,14 +6538,14 @@ class KoKoFishUI:
         popup.geometry(f"+{x}+{y}")
         
         engine_name = "Kokoro" if getattr(self.settings, 'engine', 'fish14') == 'kokoro' else "Fish-Speech"
-        lbl_msg = ctk.CTkLabel(popup, text=t("SPEECH_LAB_ENGINE_BOOTING", engine_name=engine_name), font=(FONT_FAMILY, 14, "bold"), text_color=COLORS["text_primary"])
+        lbl_msg = ctk.CTkLabel(popup, text=f"Booting {engine_name} Engine...", font=(FONT_FAMILY, 14, "bold"), text_color=COLORS["text_primary"])
         lbl_msg.pack(pady=(20, 10))
         
         pb = ctk.CTkProgressBar(popup, progress_color=COLORS["accent"], fg_color=COLORS["bg_input"], width=280, height=8, corner_radius=4)
         pb.pack(pady=5)
         pb.set(0)
         
-        status = ctk.CTkLabel(popup, text=t("COMMON_INITIALIZING"), font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"])
+        status = ctk.CTkLabel(popup, text="Initializing...", font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"])
         status.pack(pady=5)
 
         def on_progress(text: str, frac: float):
@@ -6550,12 +6561,8 @@ class KoKoFishUI:
                     self.update_tts_status(f"⚠  {warnings[0]}", COLORS["warning"])
                 else:
                     _prov = getattr(self.tts, "provider", "")
-                    if _prov == "cuda":
-                        self.update_tts_status(t("SPEECH_LAB_STATUS_ENGINE_READY_GPU"), COLORS["success"])
-                    elif _prov == "cpu":
-                        self.update_tts_status(t("SPEECH_LAB_STATUS_ENGINE_READY_CPU"), COLORS["success"])
-                    else:
-                        self.update_tts_status(t("SPEECH_LAB_STATUS_ENGINE_READY"), COLORS["success"])
+                    _tag  = " (GPU)" if _prov == "cuda" else " (CPU)" if _prov == "cpu" else ""
+                    self.update_tts_status(f"✅  Engine ready{_tag}", COLORS["success"])
                 try:
                     self.tts_progress.set(0)
                     for btn in (self.btn_play, self.btn_pause, self.btn_save_mp3):
@@ -6569,8 +6576,8 @@ class KoKoFishUI:
             def _err_ui():
                 popup.grab_release()
                 popup.destroy()
-                messagebox.showerror(t("COMMON_ERROR"), t("SPEECH_LAB_ENGINE_LOAD_FAILED_BODY", error=exc))
-                self.update_tts_status(t("SPEECH_LAB_STATUS_LOAD_FAILED"), COLORS["danger"])
+                messagebox.showerror("Error", f"Failed to load engine:\n{exc}")
+                self.update_tts_status("❌  Load failed", COLORS["danger"])
             self.root.after(0, _err_ui)
 
         self.tts.load_model(on_progress=on_progress, on_ready=on_ready, on_error=on_error)
@@ -6578,7 +6585,7 @@ class KoKoFishUI:
     def _tts_play(self):
         """Read all playlist items in order, skipping those already generated."""
         if not self._playlist_items:
-            messagebox.showinfo("KoKoFish", t("SPEECH_LAB_MSG_ADD_FILES"))
+            messagebox.showinfo("KoKoFish", "Add files to the playlist first.")
             return
 
         if not self.tts.is_loaded:
@@ -6602,8 +6609,8 @@ class KoKoFishUI:
         else:
             # All items already have audio — ask to re-read from top
             if messagebox.askyesno(
-                t("SPEECH_LAB_MSG_ALL_DONE_TITLE"),
-                t("SPEECH_LAB_MSG_ALL_DONE_BODY"),
+                "All Done",
+                "All items have already been generated.\nRe-read from the beginning?",
             ):
                 start_idx = 0
             else:
@@ -6629,7 +6636,7 @@ class KoKoFishUI:
         """Generate TTS for all checked items. Ask before re-generating completed ones."""
         selected = [i for i, it in enumerate(self._playlist_items) if it.get("selected", True)]
         if not selected:
-            messagebox.showinfo("KoKoFish", t("SPEECH_LAB_MSG_NO_SELECTED"))
+            messagebox.showinfo("KoKoFish", "No items selected.")
             return
 
         # Check if any already have audio
@@ -6641,15 +6648,17 @@ class KoKoFishUI:
         if done and not pending:
             # All selected are already done
             if not messagebox.askyesno(
-                t("SPEECH_LAB_MSG_REGEN_ALL_TITLE"),
-                t("SPEECH_LAB_MSG_REGEN_ALL_BODY", count=len(done)),
+                "Re-generate?",
+                f"All {len(done)} selected item(s) already have audio.\nRe-generate them?",
             ):
                 return
             indices = selected
         elif done:
             answer = messagebox.askyesno(
-                t("SPEECH_LAB_MSG_REGEN_ALL_TITLE"),
-                t("SPEECH_LAB_MSG_REGEN_SOME_BODY", count=len(done)),
+                "Re-generate?",
+                f"{len(done)} selected item(s) already have audio.\n"
+                f"Re-generate those too, or skip them?\n\n"
+                "Yes = re-generate all  |  No = skip already-done",
             )
             indices = selected if answer else pending
         else:
@@ -6679,7 +6688,7 @@ class KoKoFishUI:
         if target is not None and target != self._drag_over:
             self._drag_over = target
             self.tts_status.configure(
-                text=t("SPEECH_LAB_STATUS_DROP_AT_POSITION", position=target + 1)
+                text=f"⠿ Drop at position {target + 1}"
             )
 
     def _drag_end(self, event, _idx: int):
@@ -6699,7 +6708,7 @@ class KoKoFishUI:
             item = self._playlist_items.pop(src)
             self._playlist_items.insert(target, item)
             self._rebuild_playlist_ui()
-        self.tts_status.configure(text=t("SPEECH_LAB_STATUS_READY"))
+        self.tts_status.configure(text="Ready")
 
     def _row_at(self, x_screen: int, y_screen: int):
         """Return the playlist item index under screen coords (x, y), or None."""
@@ -6752,7 +6761,7 @@ class KoKoFishUI:
             self._current_playing = -1
             self._show_convert_btns(False)
             self._rebuild_playlist_ui()
-            self.tts_status.configure(text=t("SPEECH_LAB_STATUS_DONE"))
+            self.tts_status.configure(text="Done")
             return
         self._current_playing = self._tts_queue[0]
         self._rebuild_playlist_ui()
@@ -6839,7 +6848,7 @@ class KoKoFishUI:
             self._is_playing = False
             self._current_playing = -1
             self._rebuild_playlist_ui()
-            self.tts_status.configure(text=t("SPEECH_LAB_STATUS_PLAYLIST_COMPLETE"))
+            self.tts_status.configure(text="Playlist complete")
             return
 
         item = self._playlist_items[self._current_playing]
@@ -6866,12 +6875,12 @@ class KoKoFishUI:
             from tag_suggester import is_llm_available, is_qwen_model_ready
             if not is_llm_available():
                 self.root.after(0, lambda: self.tts_status.configure(
-                    text=t("SPEECH_LAB_WARN_NO_LLM"),
+                    text="⚠ llama-cpp-python not installed — translation/AI Flow skipped. See Settings.",
                     text_color=COLORS["warning"],
                 ))
             elif not is_qwen_model_ready():
                 self.root.after(0, lambda: self.tts_status.configure(
-                    text=t("SPEECH_LAB_WARN_NO_MODEL"),
+                    text="⚠ Qwen model not downloaded — translation/AI Flow skipped. See Settings → Download Model.",
                     text_color=COLORS["warning"],
                 ))
             if is_llm_available() and is_qwen_model_ready():
@@ -6895,7 +6904,7 @@ class KoKoFishUI:
                         try:
                             from tag_suggester import translate_for_voice
                             self.root.after(0, lambda l=_lang: self.tts_status.configure(
-                                text=t("SPEECH_LAB_STATUS_TRANSLATING", name=item['name'], lang=l)
+                                text=f"Translating {item['name']} → {l}…"
                             ))
                             translated = translate_for_voice(current_text, _lang, tone=_tr_tone, content_style=_style)
                             if translated and translated.strip():
@@ -6908,7 +6917,7 @@ class KoKoFishUI:
                         try:
                             from tag_suggester import enhance_for_tts
                             self.root.after(0, lambda: self.tts_status.configure(
-                                text=t("SPEECH_LAB_STATUS_AI_FLOW", name=item['name'])
+                                text=f"AI Flow: enhancing {item['name']}…"
                             ))
                             enhanced = enhance_for_tts(current_text, engine=_eng, content_style=_style)
                             if enhanced and enhanced.strip():
@@ -6939,7 +6948,7 @@ class KoKoFishUI:
             except Exception as _ue:
                 logger.warning("LLM VRAM unload failed: %s", _ue)
 
-        self.tts_status.configure(text=t("SPEECH_LAB_STATUS_GENERATING", name=item['name']))
+        self.tts_status.configure(text=f"Generating: {item['name']}...")
         self._rebuild_playlist_ui()
 
         # Use per-item voice, fall back to global selector
@@ -7052,16 +7061,16 @@ class KoKoFishUI:
                         self._last_wav_path = None
                         self._delete_temp_wav(wav_path)
                         self.root.after(0, lambda p=out_mp3: self.tts_status.configure(
-                            text=t("SPEECH_LAB_STATUS_AUTO_SAVED", stem=stem)
+                            text=f"✅ Saved: outputs/{stem}/{stem}.mp3"
                         ))
                     except Exception as _e:
                         logger.error("Auto-save failed: %s", _e)
                         self.root.after(0, lambda e=_e: self.tts_status.configure(
-                            text=t("SPEECH_LAB_STATUS_AUTO_SAVE_FAILED", error=e)
+                            text=f"⚠️ Auto-save failed: {e}"
                         ))
                 else:
                     self.root.after(0, lambda: self.tts_status.configure(
-                        text=t("SPEECH_LAB_STATUS_DONE_ITEM", name=self._playlist_items[self._current_playing]['name'])
+                        text=f"✅ Done: {self._playlist_items[self._current_playing]['name']}"
                     ))
 
                 self.root.after(0, lambda: self.tts_progress.set(1.0))
@@ -7078,7 +7087,7 @@ class KoKoFishUI:
             if _stream[0]:
                 try: _stream[0].stop(); _stream[0].close()
                 except Exception: pass
-            self.root.after(0, lambda: self.tts_status.configure(text=t("SPEECH_LAB_STATUS_ERROR", error=exc)))
+            self.root.after(0, lambda: self.tts_status.configure(text=f"Error: {exc}"))
 
         # Route to correct engine based on settings
         _is_kokoro_mode = getattr(self.settings, 'engine', 'fish14') == 'kokoro'
@@ -7130,7 +7139,7 @@ class KoKoFishUI:
 
             self._audio_data = data
             self._audio_sr = sr
-            self.tts_status.configure(text=t("SPEECH_LAB_STATUS_PLAYING", name=self._playlist_items[self._current_playing]['name']))
+            self.tts_status.configure(text=f"Playing: {self._playlist_items[self._current_playing]['name']}")
 
             # Stop any existing playback
             sd.stop()
@@ -7161,7 +7170,7 @@ class KoKoFishUI:
 
         except Exception as exc:
             logger.error("Audio playback error: %s", exc)
-            self.tts_status.configure(text=t("SPEECH_LAB_STATUS_PLAYBACK_ERROR", error=exc))
+            self.tts_status.configure(text=f"Playback error: {exc}")
 
     def _resume_audio(self):
         """Resume paused audio playback."""
@@ -7169,7 +7178,7 @@ class KoKoFishUI:
             import sounddevice as sd
             # sounddevice doesn't support true pause/resume easily,
             # so this is a simplified implementation
-            self.tts_status.configure(text=t("SPEECH_LAB_STATUS_RESUMED"))
+            self.tts_status.configure(text="Resumed")
         except Exception:
             pass
 
@@ -7181,7 +7190,7 @@ class KoKoFishUI:
             sd.stop()
         except Exception:
             pass
-        self.tts_status.configure(text=t("SPEECH_LAB_STATUS_PAUSED"))
+        self.tts_status.configure(text="Paused")
 
     def _tts_stop(self):
         """Stop playback, cancel any pending generation, and clear the queue."""
@@ -7198,7 +7207,7 @@ class KoKoFishUI:
         except Exception:
             pass
         self.tts_progress.set(0)
-        self.tts_status.configure(text=t("SPEECH_LAB_STATUS_STOPPED"))
+        self.tts_status.configure(text="Stopped")
         self._rebuild_playlist_ui()
 
     def _tts_save_mp3(self):
@@ -7210,11 +7219,11 @@ class KoKoFishUI:
             and os.path.isfile(it["audio_path"])
         ]
         if not ready:
-            messagebox.showinfo(t("SPEECH_LAB_MSG_SAVE_SEL_TITLE"), t("SPEECH_LAB_MSG_SAVE_SEL_NO_AUDIO"), parent=self.root)
+            messagebox.showinfo("Save Selected", "No generated audio found for selected items.\nGenerate speech first.", parent=self.root)
             return
 
         dest_dir = filedialog.askdirectory(
-            title=t("SPEECH_LAB_DIALOG_SAVE_FOLDER", count=len(ready)),
+            title=f"Save {len(ready)} audio file(s) to folder…",
             initialdir=os.path.expanduser("~/Documents"),
             parent=self.root,
         )
@@ -7241,12 +7250,12 @@ class KoKoFishUI:
 
         if errors:
             messagebox.showwarning(
-                t("SPEECH_LAB_MSG_SAVE_SEL_TITLE"),
-                t("SPEECH_LAB_MSG_SAVE_SEL_ERRORS", saved=saved, total=len(ready), errors="\n".join(errors)),
+                "Save Selected",
+                f"Saved {saved}/{len(ready)} files.\n\nErrors:\n" + "\n".join(errors),
                 parent=self.root,
             )
         else:
-            self.tts_status.configure(text=t("SPEECH_LAB_STATUS_SAVED_BATCH", count=saved, folder=os.path.basename(dest_dir)))
+            self.tts_status.configure(text=f"✅ Saved {saved} file(s) to {os.path.basename(dest_dir)}")
 
     def _tts_export_audiobook(self):
         """Merge selected items with audio into a single M4B audiobook with chapter marks."""
@@ -7258,28 +7267,29 @@ class KoKoFishUI:
         ]
         if not ready:
             messagebox.showinfo(
-                t("SPEECH_LAB_MSG_EXPORT_AB_TITLE"),
-                t("SPEECH_LAB_MSG_EXPORT_AB_NO_AUDIO"),
+                "Export Audiobook",
+                "No generated audio found for selected items.\nGenerate speech first.",
                 parent=self.root,
             )
             return
 
         if not is_ffmpeg_available():
             messagebox.showerror(
-                t("SPEECH_LAB_MSG_EXPORT_AB_TITLE"),
-                t("SPEECH_LAB_MSG_EXPORT_AB_NO_FFMPEG"),
+                "Export Audiobook",
+                "FFmpeg is required for audiobook export but was not found.\n"
+                "Install FFmpeg and ensure it is on your PATH.",
                 parent=self.root,
             )
             return
 
         out_path = filedialog.asksaveasfilename(
-            title=t("SPEECH_LAB_DIALOG_SAVE_AUDIOBOOK"),
+            title="Save Audiobook As…",
             defaultextension=".m4b",
             filetypes=[
-                (t("SPEECH_LAB_DIALOG_AUDIOBOOK_FT_M4B"), "*.m4b"),
-                (t("SPEECH_LAB_DIALOG_AUDIOBOOK_FT_MP4"), "*.mp4"),
-                (t("SPEECH_LAB_DIALOG_AUDIOBOOK_FT_WAV"), "*.wav"),
-                (t("SPEECH_LAB_DIALOG_AUDIOBOOK_FT_MP3"), "*.mp3"),
+                ("Audiobook M4B — chapters supported", "*.m4b"),
+                ("MP4 audio — chapters supported",     "*.mp4"),
+                ("WAV — lossless, no chapters",        "*.wav"),
+                ("MP3 — no chapter support",           "*.mp3"),
             ],
             initialfile="audiobook.m4b",
             parent=self.root,
@@ -7287,7 +7297,7 @@ class KoKoFishUI:
         if not out_path:
             return
 
-        self.tts_status.configure(text=t("SPEECH_LAB_STATUS_BUILDING_AUDIOBOOK"))
+        self.tts_status.configure(text="Building audiobook…")
         self.root.update_idletasks()
 
         def _build():
@@ -7378,15 +7388,15 @@ class KoKoFishUI:
                 h, m = divmod(m, 60)
                 dur_str = f"{h}h {m}m {s}s" if h else f"{m}m {s}s"
                 self.root.after(0, lambda: self.tts_status.configure(
-                    text=t("SPEECH_LAB_STATUS_AUDIOBOOK_SAVED", chapters=len(ready), duration=dur_str)
+                    text=f"✅ Audiobook saved — {len(ready)} chapters, {dur_str}"
                 ))
 
             except Exception as exc:
                 logger.error("Audiobook export failed: %s", exc)
                 self.root.after(0, lambda e=str(exc): messagebox.showerror(
-                    t("SPEECH_LAB_MSG_EXPORT_AB_FAILED_TITLE"), e, parent=self.root
+                    "Audiobook Export Failed", e, parent=self.root
                 ))
-                self.root.after(0, lambda: self.tts_status.configure(text=t("SPEECH_LAB_STATUS_AUDIOBOOK_FAILED")))
+                self.root.after(0, lambda: self.tts_status.configure(text="Audiobook export failed"))
             finally:
                 # Clean up temp files
                 import shutil
@@ -7433,7 +7443,7 @@ class KoKoFishUI:
     def _stt_transcribe(self):
         """Start transcription."""
         if not self._stt_audio_path:
-            messagebox.showinfo("KoKoFish", t("TEXT_LAB_MSG_NO_FILE"))
+            messagebox.showinfo("KoKoFish", "Drop or select an audio file first.")
             return
 
         if not self.stt.is_loaded:
@@ -7444,20 +7454,20 @@ class KoKoFishUI:
 
             self.stt_textbox.configure(state="normal")
             self.stt_textbox.delete("1.0", "end")
-            self.stt_textbox.insert("1.0", t("TEXT_LAB_STATUS_LOADING_MODEL") + "\n")
+            self.stt_textbox.insert("1.0", "Loading Whisper model...\n")
             self.stt_textbox.configure(state="disabled")
 
             def on_ready():
                 self.root.after(0, self._stt_run_transcription)
                 self.root.after(
                     0,
-                    lambda: self.update_stt_status(t("TEXT_LAB_STATUS_LOADED"), COLORS["success"])
+                    lambda: self.update_stt_status("✅  Loaded", COLORS["success"])
                 )
 
             def on_error(exc):
                 self.root.after(
                     0,
-                    lambda: self._stt_append_text(t("TEXT_LAB_STATUS_ERROR_LOADING", error=exc))
+                    lambda: self._stt_append_text(f"\nError loading model: {exc}")
                 )
 
             self.stt.load_model(
@@ -7494,14 +7504,14 @@ class KoKoFishUI:
             self.root.after(
                 0,
                 lambda: self._stt_append_text(
-                    t("TEXT_LAB_STATUS_DONE", lang=lang, prob=f"{prob:.0f}")
+                    f"\n--- Done! Language: {lang} ({prob:.0f}% confidence) ---"
                 )
             )
 
         def on_error(exc):
             self.root.after(
                 0,
-                lambda: self._stt_append_text(t("TEXT_LAB_STATUS_TRANSCRIBE_ERROR", error=exc))
+                lambda: self._stt_append_text(f"\n⚠ Error: {exc}")
             )
 
         self.stt.transcribe(
@@ -7522,7 +7532,7 @@ class KoKoFishUI:
     def _stt_cancel(self):
         """Cancel ongoing transcription."""
         self.stt.cancel()
-        self._stt_append_text(t("TEXT_LAB_STATUS_CANCELLED"))
+        self._stt_append_text("\n--- Cancelled ---")
 
     def _stt_export(self, fmt: str):
         """Export transcription to a file."""
@@ -7530,8 +7540,8 @@ class KoKoFishUI:
         text = self.stt_textbox.get("1.0", "end").strip()
         self.stt_textbox.configure(state="disabled")
 
-        if not text or text == t("TEXT_LAB_TEXTBOX_PLACEHOLDER"):
-            messagebox.showinfo("KoKoFish", t("TEXT_LAB_MSG_NO_TRANSCRIPT_EXPORT"))
+        if not text or text == "Transcription will appear here in real time...":
+            messagebox.showinfo("KoKoFish", "No transcription to export.")
             return
 
         exts   = {"txt": ".txt", "docx": ".docx", "pdf": ".pdf", "epub": ".epub"}
@@ -7543,7 +7553,7 @@ class KoKoFishUI:
         }
 
         path = filedialog.asksaveasfilename(
-            title=t("TEXT_LAB_DIALOG_SAVE_AS", fmt=fmt.upper()),
+            title=f"Save as {fmt.upper()}",
             defaultextension=exts[fmt],
             filetypes=ftypes[fmt],
         )
@@ -7562,9 +7572,9 @@ class KoKoFishUI:
                 export_epub(clean, path, title=stem)
             else:
                 {"txt": export_txt, "docx": export_docx, "pdf": export_pdf}[fmt](text, path)
-            messagebox.showinfo("KoKoFish", t("TEXT_LAB_MSG_SAVED_TO", path=path))
+            messagebox.showinfo("KoKoFish", f"Saved to:\n{path}")
         except Exception as exc:
-            messagebox.showerror(t("COMMON_ERROR"), t("TEXT_LAB_MSG_EXPORT_FAILED", error=exc))
+            messagebox.showerror("Error", f"Export failed:\n{exc}")
 
     def _stt_strip_timestamps(self, text: str) -> str:
         """Remove [X.Xs → Y.Ys] markers and status lines from a transcript."""
@@ -7579,21 +7589,21 @@ class KoKoFishUI:
         text = self.stt_textbox.get("1.0", "end").strip()
         self.stt_textbox.configure(state="disabled")
 
-        if not text or text == t("TEXT_LAB_TEXTBOX_PLACEHOLDER"):
-            messagebox.showinfo("KoKoFish", t("TEXT_LAB_MSG_NO_TRANSCRIPT_TRANSLATE"))
+        if not text or text == "Transcription will appear here in real time...":
+            messagebox.showinfo("KoKoFish", "No transcription to translate.")
             return
 
         from tag_suggester import is_llm_available, is_qwen_model_ready
         if not is_llm_available():
-            messagebox.showerror("KoKoFish", t("SPEECH_LAB_WARN_NO_LLM"))
+            messagebox.showerror("KoKoFish", "llama-cpp-python not installed — cannot translate.\nInstall it in Settings.")
             return
         if not is_qwen_model_ready():
-            messagebox.showerror("KoKoFish", t("SPEECH_LAB_WARN_NO_MODEL"))
+            messagebox.showerror("KoKoFish", "LLM model not downloaded — cannot translate.\nDownload it in Settings.")
             return
 
         clean = self._stt_strip_timestamps(text)
         lang  = self._stt_translate_lang_var.get()
-        self._stt_translate_btn.configure(state="disabled", text=t("TEXT_LAB_STATUS_TRANSLATING"))
+        self._stt_translate_btn.configure(state="disabled", text="Translating…")
 
         def _run():
             try:
@@ -7601,10 +7611,10 @@ class KoKoFishUI:
                 translated = translate_for_voice(clean, lang)
                 self.root.after(0, lambda: _show(translated))
             except Exception as exc:
-                self.root.after(0, lambda: messagebox.showerror(t("TEXT_LAB_MSG_TRANSLATE_FAILED_TITLE"), str(exc)))
+                self.root.after(0, lambda: messagebox.showerror("Translate Failed", str(exc)))
             finally:
                 self.root.after(0, lambda: self._stt_translate_btn.configure(
-                    state="normal", text=t("TEXT_LAB_BTN_TRANSLATE")
+                    state="normal", text="🌐  Translate"
                 ))
 
         def _show(translated):
@@ -7731,8 +7741,8 @@ class KoKoFishUI:
         text = self.stt_textbox.get("1.0", "end").strip()
         self.stt_textbox.configure(state="disabled")
 
-        if not text or text == t("TEXT_LAB_TEXTBOX_PLACEHOLDER"):
-            messagebox.showinfo("KoKoFish", t("TEXT_LAB_MSG_NO_TRANSCRIPT_SEND"))
+        if not text or text == "Transcription will appear here in real time...":
+            messagebox.showinfo("KoKoFish", "No transcription to send.")
             return
 
         clean = self._stt_strip_timestamps(text)
@@ -7746,9 +7756,9 @@ class KoKoFishUI:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(clean)
             self._tts_add_file(path)
-            self.tabview.set(t("MAIN_TAB_SPEECH_LAB"))
+            self.tabview.set("🔊  Speech Lab")
         except Exception as exc:
-            messagebox.showerror(t("COMMON_ERROR"), t("TEXT_LAB_MSG_SEND_FAILED", error=exc))
+            messagebox.showerror("Error", f"Could not send to Speech Lab:\n{exc}")
 
     def _open_prompt_editor(self):
         """Open a window to view and edit all Qwen AI prompts."""
@@ -7868,7 +7878,7 @@ class KoKoFishUI:
     def _voice_clone(self):
         """Open dialog to clone a new voice."""
         path = filedialog.askopenfilename(
-            title=t("VOICE_LAB_DIALOG_SELECT_AUDIO"),
+            title="Select reference audio (15–30 sec, any format)",
             filetypes=[
                 ("Audio files", "*.wav *.mp3 *.flac *.ogg *.m4a *.weba *.webm *.opus *.wma *.amr *.aac"),
                 ("All files", "*.*"),
@@ -7879,8 +7889,8 @@ class KoKoFishUI:
 
         # Ask for voice name
         dialog = ctk.CTkInputDialog(
-            text=t("VOICE_LAB_DIALOG_ENTER_NAME"),
-            title=t("VOICE_LAB_DIALOG_CLONE_TITLE"),
+            text="Enter a name for this voice profile:",
+            title="Clone Voice",
         )
         name = dialog.get_input()
         if not name or not name.strip():
@@ -7888,7 +7898,7 @@ class KoKoFishUI:
 
         name = name.strip()
         if self.voices.voice_exists(name):
-            messagebox.showwarning("KoKoFish", t("VOICE_LAB_MSG_ALREADY_EXISTS", name=name))
+            messagebox.showwarning("KoKoFish", f"Voice '{name}' already exists.")
             return
 
         # Auto-transcribe the reference audio so Fish Speech gets proper text
@@ -7904,12 +7914,12 @@ class KoKoFishUI:
                 )
                 self.root.after(0, self._refresh_voice_grid)
                 self.root.after(0, lambda: messagebox.showinfo(
-                    "KoKoFish", t("VOICE_LAB_MSG_CLONE_SUCCESS", name=name)
+                    "KoKoFish", f"Voice '{name}' created successfully!"
                     + (f"\n\nTranscript saved:\n\"{transcript[:120]}{'…' if len(transcript) > 120 else ''}\"" if transcript else "")
                 ))
             except Exception as exc:
                 self.root.after(0, lambda e=exc: messagebox.showerror(
-                    t("COMMON_ERROR"), t("VOICE_LAB_MSG_CLONE_FAILED", error=e)
+                    "Error", f"Voice cloning failed:\n{e}"
                 ))
 
         def _transcribe_and_clone():
@@ -7942,15 +7952,15 @@ class KoKoFishUI:
                 done.wait(timeout=180)
 
         self.root.after(0, lambda: self.tts_status.configure(
-            text=t("VOICE_LAB_STATUS_TRANSCRIBING")
+            text="Transcribing reference audio for voice conditioning…"
         ))
         threading.Thread(target=_transcribe_and_clone, daemon=True, name="VoiceClone").start()
 
     def _voice_delete(self, name: str):
         """Delete a voice profile."""
         confirm = messagebox.askyesno(
-            t("VOICE_LAB_DIALOG_DELETE_TITLE"),
-            t("VOICE_LAB_MSG_DELETE_CONFIRM", name=name)
+            "Delete Voice",
+            f"Are you sure you want to delete '{name}'?"
         )
         if confirm:
             self.voices.delete_voice(name)
@@ -7974,7 +7984,7 @@ class KoKoFishUI:
             """Update elapsed time every second while the test runs."""
             elapsed = int(time.time() - _start_time[0])
             self.update_tts_status(
-                t("VOICE_LAB_STATUS_TESTING", name=name, elapsed=elapsed),
+                f"⏳ Testing {name}…  ({elapsed}s)",
                 COLORS["warning"],
             )
             _timer_id[0] = self.root.after(1000, _tick)
@@ -7984,13 +7994,13 @@ class KoKoFishUI:
                 self.root.after_cancel(_timer_id[0])
                 _timer_id[0] = None
 
-        self.update_tts_status(t("VOICE_LAB_STATUS_TESTING", name=name, elapsed=0), COLORS["warning"])
+        self.update_tts_status(f"⏳ Testing {name}…  (0s)", COLORS["warning"])
         _timer_id[0] = self.root.after(1000, _tick)
 
         def on_complete(wav_path):
             self.root.after(0, _stop_timer)
             self.root.after(0, lambda: self.update_tts_status(
-                t("VOICE_LAB_STATUS_TEST_COMPLETE"), COLORS["success"]
+                "✅ Test complete — playing sample", COLORS["success"]
             ))
             def _play():
                 try:
@@ -8001,7 +8011,7 @@ class KoKoFishUI:
                     sd.play(data, sr)
                     sd.wait()
                     self.root.after(0, lambda: self.update_tts_status(
-                        t("SPEECH_LAB_STATUS_ENGINE_READY"), COLORS["success"]
+                        "✅ Engine ready", COLORS["success"]
                     ))
                 except Exception as e:
                     logger.error("Voice test playback error: %s", e)
@@ -8010,10 +8020,10 @@ class KoKoFishUI:
         def on_error(exc):
             self.root.after(0, _stop_timer)
             self.root.after(0, lambda: self.update_tts_status(
-                t("SPEECH_LAB_STATUS_ENGINE_READY"), COLORS["success"]
+                "✅ Engine ready", COLORS["success"]
             ))
             self.root.after(0, lambda: messagebox.showerror(
-                t("VOICE_LAB_MSG_TEST_FAILED_TITLE"), t("VOICE_LAB_MSG_TEST_FAILED_BODY", error=exc)
+                "Test Failed", f"Could not generate sample:\n{exc}"
             ))
 
         ref_wav     = profile.get("wav_path")
@@ -8063,8 +8073,13 @@ class KoKoFishUI:
 
             gpu_name = get_nvidia_gpu_name()
             confirm = messagebox.askyesno(
-                t("SETTINGS_CUDA_DOWNLOAD_TITLE"),
-                t("SETTINGS_CUDA_DOWNLOAD_BODY", gpu_name=gpu_name)
+                "Download CUDA Support",
+                f"GPU detected: {gpu_name}\n\n"
+                "To enable GPU acceleration, KoKoFish needs to download\n"
+                "the CUDA version of PyTorch (~2.5 GB).\n\n"
+                "This is a one-time download. The app will continue\n"
+                "working while it downloads in the background.\n\n"
+                "Download now?"
             )
 
             if not confirm:
@@ -8074,7 +8089,7 @@ class KoKoFishUI:
             # Start download
             self.cuda_switch.configure(state="disabled")
             self.cuda_status_label.configure(
-                text=t("SETTINGS_CUDA_DOWNLOADING"),
+                text="⏳  Downloading CUDA PyTorch...",
                 text_color=COLORS["warning"],
             )
 
@@ -8089,7 +8104,7 @@ class KoKoFishUI:
                     self.cuda_switch.configure(state="normal")
                     if success:
                         self.cuda_status_label.configure(
-                            text=t("SETTINGS_CUDA_READY", gpu_name=gpu_name),
+                            text=f"✅  {gpu_name} — CUDA ready",
                             text_color=COLORS["success"],
                         )
                         self.settings.use_cuda = True
@@ -8097,16 +8112,16 @@ class KoKoFishUI:
                         # Also swap onnxruntime → onnxruntime-gpu for Kokoro
                         _swap_ort(True)
                         messagebox.showinfo(
-                            t("SETTINGS_CUDA_READY_TITLE"),
-                            t("SETTINGS_CUDA_READY_BODY", message=message)
+                            "CUDA Ready",
+                            f"{message}\n\nRestart KoKoFish to use GPU acceleration."
                         )
                     else:
                         self.cuda_var.set(False)
                         self.cuda_status_label.configure(
-                            text=t("SETTINGS_CUDA_DOWNLOAD_FAILED"),
+                            text="❌  CUDA download failed",
                             text_color=COLORS["danger"],
                         )
-                        messagebox.showerror(t("SETTINGS_CUDA_SETUP_FAILED_TITLE"), message)
+                        messagebox.showerror("CUDA Setup Failed", message)
                 self.root.after(0, _update)
 
             install_cuda_pytorch(on_progress=on_progress, on_complete=on_complete)
@@ -8114,8 +8129,10 @@ class KoKoFishUI:
         elif not wants_cuda and is_cuda_torch_installed():
             # User is disabling CUDA — offer to revert to save space
             revert = messagebox.askyesno(
-                t("SETTINGS_CUDA_REVERT_TITLE"),
-                t("SETTINGS_CUDA_REVERT_BODY")
+                "Revert to CPU",
+                "Would you like to remove CUDA PyTorch and switch back\n"
+                "to CPU-only mode? This frees ~2 GB of disk space.\n\n"
+                "(Choose 'No' to keep CUDA installed but disabled)"
             )
 
             self.settings.use_cuda = False
@@ -8126,7 +8143,7 @@ class KoKoFishUI:
             if revert:
                 self.cuda_switch.configure(state="disabled")
                 self.cuda_status_label.configure(
-                    text=t("SETTINGS_CUDA_REVERTING"),
+                    text="⏳  Reverting to CPU...",
                     text_color=COLORS["warning"],
                 )
 
@@ -8180,7 +8197,9 @@ class KoKoFishUI:
             ).pack(expand=True, pady=(80, 8))
             ctk.CTkLabel(
                 notice_frame,
-                text=t("VOICE_LAB_LOCKED_MSG", voice_count=len(KOKORO_VOICES), lang_count=len(KOKORO_LANGUAGE_GROUPS)),
+                text=f"Voice Lab is not available in Kokoro mode.\n\n"
+                     f"Kokoro uses {len(KOKORO_VOICES)} built-in preset voices across {len(KOKORO_LANGUAGE_GROUPS)} languages — no cloning needed.\n"
+                     f"Switch to Fish-Speech 1.4, S1 Mini, or S1 Full in Settings to clone voices.",
                 font=(FONT_FAMILY, 14),
                 text_color=COLORS["text_muted"],
                 justify="center",
@@ -8239,8 +8258,9 @@ class KoKoFishUI:
                 else:
                     # fish14 — no account required
                     download = messagebox.askyesno(
-                        t("SETTINGS_DOWNLOAD_REQUIRED_TITLE"),
-                        t("SETTINGS_FISH14_DOWNLOAD_BODY"),
+                        "Download Required",
+                        f"Fish-Speech 1.4 models are not installed (~1.5 GB).\n\n"
+                        "Download now? KoKoFish will restart when complete.",
                     )
                     if not download:
                         self.settings.engine = prev_engine
@@ -8255,12 +8275,12 @@ class KoKoFishUI:
                         ok = setup_fish_speech(engine=_eng, on_progress=_on_progress)
                         if ok:
                             self.root.after(0, lambda: self.update_tts_status(
-                                t("SETTINGS_FISH14_DOWNLOAD_READY"), COLORS["success"]
+                                "✅ Fish-Speech 1.4 ready — restarting…", COLORS["success"]
                             ))
                             self.root.after(1500, self._restart_app)
                         else:
                             self.root.after(0, lambda: self.update_tts_status(
-                                t("SETTINGS_DOWNLOAD_FAILED"), COLORS["danger"]
+                                "❌ Download failed — check your connection", COLORS["danger"]
                             ))
                             self.root.after(0, self._update_engine_dropdown)
 
@@ -8269,8 +8289,8 @@ class KoKoFishUI:
 
             # Models already present — just restart
             confirm = messagebox.askyesno(
-                t("SETTINGS_RESTART_REQUIRED_TITLE"),
-                t("SETTINGS_RESTART_REQUIRED_BODY", engine=new_val),
+                "Restart Required",
+                f"Switched to: {new_val}\n\nKoKoFish needs to restart to load the new engine.\n\nRestart now?",
             )
             if confirm:
                 self._restart_app()
@@ -8282,8 +8302,9 @@ class KoKoFishUI:
         if new_engine == "kokoro":
             if not is_kokoro_ready():
                 download = messagebox.askyesno(
-                    t("SETTINGS_DOWNLOAD_REQUIRED_TITLE"),
-                    t("SETTINGS_KOKORO_DOWNLOAD_BODY"),
+                    "Download Required",
+                    "Kokoro model files are not installed (~330 MB).\n\n"
+                    "Download now? KoKoFish will restart when complete.",
                 )
                 if not download:
                     self.settings.engine = prev_engine
@@ -8298,12 +8319,12 @@ class KoKoFishUI:
                     ok = setup_kokoro(on_progress=_on_progress)
                     if ok:
                         self.root.after(0, lambda: self.update_tts_status(
-                            t("SETTINGS_KOKORO_DOWNLOAD_READY"), COLORS["success"]
+                            "✅ Kokoro models ready — restarting…", COLORS["success"]
                         ))
                         self.root.after(1500, self._restart_app)
                     else:
                         self.root.after(0, lambda: self.update_tts_status(
-                            t("SETTINGS_DOWNLOAD_FAILED"), COLORS["danger"]
+                            "❌ Download failed — check your connection", COLORS["danger"]
                         ))
                         self.root.after(0, self._update_engine_dropdown)
 
@@ -8311,8 +8332,8 @@ class KoKoFishUI:
                 return
 
             confirm = messagebox.askyesno(
-                t("SETTINGS_RESTART_REQUIRED_TITLE"),
-                t("SETTINGS_RESTART_REQUIRED_BODY", engine=new_val),
+                "Restart Required",
+                f"Switched to: {new_val}\n\nKoKoFish needs to restart to load the new engine.\n\nRestart now?",
             )
             if confirm:
                 self._restart_app()
@@ -8462,10 +8483,10 @@ class KoKoFishUI:
         """Revert the engine dropdown to match the saved setting."""
         _eng = getattr(self.settings, 'engine', 'kokoro')
         _eng_to_option = {
-            "kokoro": t("SETTINGS_ENGINE_OPT_KOKORO"),
-            "fish14": t("SETTINGS_ENGINE_OPT_FISH14"),
-            "s1mini": t("SETTINGS_ENGINE_OPT_S1MINI"),
-            "s1":     t("SETTINGS_ENGINE_OPT_S1"),
+            "kokoro": "Kokoro — Fast, No Cloning (1-2 GB RAM)",
+            "fish14": "Fish-Speech 1.4 — Voice Cloning, No Account (1-4 GB RAM)",
+            "s1mini": "S1 Mini — Voice Cloning, HF Account Required (2-4 GB RAM)",
+            "s1":     "S1 Full — High Quality Cloning, HF Account Required (6-8 GB RAM)",
         }
         self.engine_var.set(_eng_to_option.get(_eng, _eng_to_option["kokoro"]))
 

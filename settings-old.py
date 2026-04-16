@@ -10,8 +10,6 @@ import logging
 import os
 import sys
 
-from lang import t
-
 logger = logging.getLogger("KoKoFish.settings")
 
 # Default settings values
@@ -193,7 +191,7 @@ def validate_fish_speech_path(path: str) -> dict:
     }
 
     if not path or not os.path.isdir(path):
-        result["message"] = t("SETTINGS_FISH_PATH_VALIDATE_MSG_NO_DIR")
+        result["message"] = "Directory does not exist."
         return result
 
     # Check for key directories
@@ -212,9 +210,9 @@ def validate_fish_speech_path(path: str) -> dict:
 
     if not missing:
         result["valid"] = True
-        result["message"] = t("SETTINGS_FISH_PATH_VALIDATE_MSG_OK")
+        result["message"] = "Fish-Speech installation looks good!"
     else:
-        result["message"] = t("SETTINGS_FISH_PATH_VALIDATE_MSG_MISSING", missing=', '.join(missing))
+        result["message"] = f"Missing components: {', '.join(missing)}"
 
     return result
 

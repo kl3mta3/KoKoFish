@@ -13,8 +13,6 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from lang import t
-
 logger = logging.getLogger("KoKoFish.voices")
 
 
@@ -87,7 +85,7 @@ class VoiceManager:
 
     def get_voice_names(self) -> List[str]:
         """Return list of voice names for dropdown population."""
-        return [t("VOICE_NAMES_DEFAULT_RANDOM")] + self.list_voices()
+        return ["Default (Random)"] + self.list_voices()
 
     # ------------------------------------------------------------------
     # Voice creation (zero-shot cloning)

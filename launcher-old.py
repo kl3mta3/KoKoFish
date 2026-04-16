@@ -16,8 +16,6 @@ import subprocess
 import threading
 import tkinter as tk
 from tkinter import messagebox
-from lang import t, load_language
-
 if getattr(sys, 'frozen', False):
     # Running as compiled PyInstaller executable
     APP_DIR = os.path.dirname(sys.executable)
@@ -40,49 +38,49 @@ else:
 def launch_main_app():
     """Launch the real application."""
     main_script = os.path.join(APP_DIR, "main.py")
-
+    
     # Detach process so the main app doesn't close when the launcher closes
     flags = 0
     if sys.platform == "win32":
         flags = 0x00000008 | 0x00000200 # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-
+        
     # CRITICAL FIX: PyInstaller sets TCL/TK_LIBRARY to a temp folder that gets
     # deleted as soon as this launcher exits. We must remove these so the actual
     # pythonw process falls back to its own built-in TCL/TK libraries.
     env = os.environ.copy()
     env.pop("TCL_LIBRARY", None)
     env.pop("TK_LIBRARY", None)
-
+        
     subprocess.Popen([PYTHON_EXE, main_script], cwd=APP_DIR, env=env, creationflags=flags)
     sys.exit(0)
 
 class InstallerGUI(tk.Tk):
     def __init__(self):
         super().__init__()
-
-        self.title("KoKoFish " + t("LAUNCHER_WINDOW_TITLE"))
+        
+        self.title("KoKoFish Setup")
         self.geometry("450x250")
         self.configure(bg="#0f0f1a")
-
+        
         # Center window
         self.update_idletasks()
         x = (self.winfo_screenwidth() - 450) // 2
         y = (self.winfo_screenheight() - 250) // 2
         self.geometry(f"+{x}+{y}")
         self.overrideredirect(True) # Remove windows border
-
+        
         # UI Elements
         tk.Label(
             self, text="🐟 KoKoFish", font=("Segoe UI", 28, "bold"),
             bg="#0f0f1a", fg="#6c83f7"
         ).pack(pady=(40, 5))
-
+        
         tk.Label(
-            self, text=t("LAUNCHER_SUBTITLE"), font=("Segoe UI", 12),
+            self, text="Audiobook Studio", font=("Segoe UI", 12),
             bg="#0f0f1a", fg="#9a9ab0"
         ).pack(pady=(0, 20))
-
-        self.status_var = tk.StringVar(value=t("LAUNCHER_STATUS_INIT"))
+        
+        self.status_var = tk.StringVar(value="Initializing first-time setup...")
         self.status_label = tk.Label(
             self, textvariable=self.status_var, font=("Segoe UI", 10),
             bg="#0f0f1a", fg="#e8e8f0"
@@ -101,15 +99,15 @@ class InstallerGUI(tk.Tk):
         flags = 0x00000008 | 0x00000200 if sys.platform == "win32" else 0
         main_script = os.path.join(APP_DIR, "main.py")
         subprocess.Popen([PYTHON_EXE, main_script], cwd=APP_DIR, env=env, creationflags=flags)
-        self.update_status(t("LAUNCHER_LINGER_MSG"))
+        self.update_status("Loading models… KoKoFish will appear shortly.")
         self.after(15000, self.destroy)
-
+        
     def run_setup(self):
         """Run the offline installation process."""
         import shutil
         import urllib.request
         import tempfile
-
+        
         def _find_valid_python():
             # Prefer Python 3.12 exactly — bundled torch wheels are cp312
             candidates = []
@@ -138,23 +136,23 @@ class InstallerGUI(tk.Tk):
         # Check for Python on the main UI thread safely
         system_python = _find_valid_python()
         wants_install = False
-
+        
         if not system_python:
             wants_install = messagebox.askyesno(
-                t("LAUNCHER_PYTHON_REQUIRED_TITLE"),
+                "Python Required",
                 "KoKoFish requires Python 3.12 which was not found on your system.\n\n"
                 "Would you like KoKoFish to download and install Python 3.12 for you right now?\n"
                 "(It installs cleanly to your local user folder without requiring Admin privileges)"
             )
             if not wants_install:
-                messagebox.showerror(t("LAUNCHER_SETUP_FAILED_TITLE"), "Python 3.12 is required. Please install it from python.org and try again.")
+                messagebox.showerror("Setup Failed", "Python 3.12 is required. Please install it from python.org and try again.")
                 self.destroy()
                 return
 
         def _worker():
             try:
                 nonlocal system_python
-
+                
                 if wants_install:
                     installer_filename = "python-3.12.9-amd64.exe"
                     installer_path = os.path.join(APP_DIR, "bin", installer_filename)
@@ -170,40 +168,40 @@ class InstallerGUI(tk.Tk):
                             raise Exception(f"Failed to download Python installer: {e}")
                     else:
                         self.update_status("Installing Python 3.12...")
-
+                        
                     self.update_status("Installing Python in the background...")
                     flags = ["/passive", "InstallAllUsers=0", "PrependPath=1", "Include_test=0", "Include_doc=0", "Include_launcher=0"]
                     subprocess.run([installer_path] + flags, check=True)
-
+                    
                     system_python = _find_valid_python()
                     if not system_python:
                         raise Exception("Automated Python installation failed. Please install manually.")
 
-
+                    
                 # 1. Create VENV
                 if not os.path.exists(VENV_DIR):
-                    self.update_status(t("LAUNCHER_STEP_VENV"))
+                    self.update_status("Creating virtual environment (1/4)...")
                     subprocess.run(
                         [system_python, "-m", "venv", VENV_DIR],
                         check=True, creationflags=subprocess.CREATE_NO_WINDOW,
                     )
 
                 # 2. Upgrade pip inside the venv first
-                self.update_status(t("LAUNCHER_STEP_PIP"))
+                self.update_status("Upgrading pip (2/4)...")
                 subprocess.run(
                     [PIP_EXE, "install", "--quiet", "--upgrade", "pip"],
                     check=False, creationflags=subprocess.CREATE_NO_WINDOW,
                 )
 
                 # 3. PyTorch CPU — try local wheels first, fall back to official CPU index
-                self.update_status(t("LAUNCHER_STEP_PYTORCH"))
+                self.update_status("Installing PyTorch CPU (3/4)  —  this may take a few minutes...")
                 torch_local = subprocess.run(
                     [PIP_EXE, "install", "--find-links", PACKAGES_DIR, "--quiet",
                      "torch", "torchaudio"],
                     check=False, creationflags=subprocess.CREATE_NO_WINDOW,
                 )
                 if torch_local.returncode != 0:
-                    self.update_status(t("LAUNCHER_STEP_PYTORCH_DL"))
+                    self.update_status("Downloading PyTorch CPU from pytorch.org (3/4)...")
                     subprocess.run(
                         [PIP_EXE, "install", "--quiet",
                          "torch", "torchaudio",
@@ -212,7 +210,7 @@ class InstallerGUI(tk.Tk):
                     )
 
                 # 4. All other dependencies — local wheels first, PyPI fallback
-                self.update_status(t("LAUNCHER_STEP_COMPONENTS"))
+                self.update_status("Installing application components (4/4)...")
                 req_file = os.path.join(APP_DIR, "requirements.txt")
                 result = subprocess.run(
                     [PIP_EXE, "install", "--find-links", PACKAGES_DIR, "--quiet",
@@ -230,19 +228,18 @@ class InstallerGUI(tk.Tk):
                 with open(SETUP_MARKER, "w") as f:
                     f.write("setup_complete")
 
-                self.update_status(t("LAUNCHER_STEP_COMPLETE"))
+                self.update_status("Setup complete! Starting KoKoFish...")
                 self.after(1000, self._spawn_and_linger)
-
+                
             except Exception as e:
-                self.update_status(t("LAUNCHER_SETUP_FAILED_TITLE"))
-                messagebox.showerror(t("LAUNCHER_SETUP_FAILED_TITLE"), f"Setup failed:\n{e}")
+                self.update_status("Installation Error!")
+                messagebox.showerror("Setup Failed", f"Setup failed:\n{e}")
                 self.after(2000, self.destroy)
 
         threading.Thread(target=_worker, daemon=True).start()
 
 
 if __name__ == "__main__":
-    load_language()
     # If setup is already done, launch immediately
     if os.path.exists(SETUP_MARKER) and os.path.exists(PYTHON_EXE):
         launch_main_app()

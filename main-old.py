@@ -55,12 +55,6 @@ os.makedirs(VOICES_DIR, exist_ok=True)
 os.makedirs(os.path.join(APP_DIR, "bin"), exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Localisation — load language preference early, before any UI strings
-# ---------------------------------------------------------------------------
-from lang import t, load_language
-load_language()
-
-# ---------------------------------------------------------------------------
 # Ensure fish-speech is importable
 # ---------------------------------------------------------------------------
 import json as _json
@@ -187,7 +181,7 @@ class SplashScreen:
 
         ctk.CTkLabel(
             frame,
-            text=t("LAUNCHER_SUBTITLE"),
+            text="Audiobook Studio",
             font=(FONT_FAMILY, 13),
             text_color="#9a9ab0",
         ).pack(pady=(0, 25))
@@ -207,7 +201,7 @@ class SplashScreen:
         # Status label
         self.status = ctk.CTkLabel(
             frame,
-            text=t("MAIN_SPLASH_INITIALIZING"),
+            text="Initializing...",
             font=(FONT_FAMILY, 11),
             text_color="#5a5a7a",
         )
@@ -216,7 +210,7 @@ class SplashScreen:
         # Version
         ctk.CTkLabel(
             frame,
-            text="v1.4.7",
+            text="v1.4.5",
             font=(FONT_FAMILY, 10),
             text_color="#3a3a5a",
         ).pack(side="bottom", pady=10)
@@ -341,7 +335,7 @@ class KoKoFishApp:
         ctk.CTkLabel(splash_container, text="🐟", font=(FONT_FAMILY, 56)).pack(pady=(40, 5))
         ctk.CTkLabel(splash_container, text="KoKoFish", font=(FONT_FAMILY, 32, "bold"),
                      text_color="#6c83f7").pack(pady=(0, 2))
-        ctk.CTkLabel(splash_container, text=t("LAUNCHER_SUBTITLE"),
+        ctk.CTkLabel(splash_container, text="Audiobook Studio",
                      font=(FONT_FAMILY, 13), text_color="#9a9ab0").pack(pady=(0, 25))
 
         splash_progress = ctk.CTkProgressBar(
@@ -352,12 +346,12 @@ class KoKoFishApp:
         splash_progress.set(0)
 
         splash_status = ctk.CTkLabel(
-            splash_container, text=t("MAIN_SPLASH_INITIALIZING"),
+            splash_container, text="Initializing...",
             font=(FONT_FAMILY, 11), text_color="#5a5a7a",
         )
         splash_status.pack(pady=(0, 20))
 
-        ctk.CTkLabel(splash_container, text="v1.4.7", font=(FONT_FAMILY, 10),
+        ctk.CTkLabel(splash_container, text="v1.4.5", font=(FONT_FAMILY, 10),
                      text_color="#3a3a5a").pack(side="bottom", pady=10)
 
         import queue as _queue
@@ -400,12 +394,12 @@ class KoKoFishApp:
                         logger.warning("Could not set CPU thread limit: %s", _te)
 
                 # ── FFmpeg ───────────────────────────────────────────────────
-                update_splash(t("MAIN_SPLASH_CHECKING_FFMPEG"), 0.03)
+                update_splash("Checking FFmpeg…", 0.03)
                 setup_ffmpeg(on_progress=update_splash)
-                update_splash(t("MAIN_SPLASH_FFMPEG_READY"), 0.07)
+                update_splash("FFmpeg ready", 0.07)
 
                 # ── Python runtime deps (noisereduce, scipy, …) ──────────────
-                update_splash(t("MAIN_SPLASH_CHECKING_DEPS"), 0.08)
+                update_splash("Checking dependencies…", 0.08)
                 setup_python_deps(on_progress=update_splash)
                 update_splash("Dependencies ready", 0.09)
 
@@ -414,14 +408,14 @@ class KoKoFishApp:
                 # ── Engine model check / download ────────────────────────────
                 if _engine == 'kokoro':
                     if not is_kokoro_ready():
-                        update_splash(t("MAIN_SPLASH_DOWNLOADING_KOKORO"), 0.10)
+                        update_splash("Downloading Kokoro models (~330 MB)…", 0.10)
                         ok = setup_kokoro(on_progress=update_splash)
                         if ok:
                             logger.info("Kokoro models downloaded successfully.")
-                            update_splash(t("MAIN_SPLASH_KOKORO_DOWNLOADED"), 0.22)
+                            update_splash("Kokoro models downloaded", 0.22)
                         else:
                             logger.warning("Kokoro model download failed; engine may not load.")
-                            update_splash(t("MAIN_SPLASH_KOKORO_FAILED"), 0.22)
+                            update_splash("Kokoro download failed — will retry on use", 0.22)
                     else:
                         update_splash("Kokoro models found", 0.12)
                         logger.info("Engine: Kokoro (models present)")
@@ -454,11 +448,11 @@ class KoKoFishApp:
                 update_splash("Voice profiles loaded", 0.27)
 
                 # ── STT engine (Whisper — can take a moment to init) ─────────
-                update_splash(t("MAIN_SPLASH_STARTING_STT"), 0.30)
+                update_splash("Starting speech recognition…", 0.30)
                 _stt_stop = threading.Event()
                 _stt_pulse = threading.Thread(
                     target=_pulse,
-                    args=(t("MAIN_SPLASH_STARTING_STT"), 0.30, 0.44, _stt_stop),
+                    args=("Starting speech recognition…", 0.30, 0.44, _stt_stop),
                     daemon=True,
                 )
                 _stt_pulse.start()
@@ -471,30 +465,30 @@ class KoKoFishApp:
                 )
                 _stt_stop.set()
                 _stt_pulse.join()
-                update_splash(t("MAIN_SPLASH_STT_READY"), 0.45)
+                update_splash("Speech recognition ready", 0.45)
 
                 # ── TTS engine (ONNX / Fish-Speech — can take several seconds) ─
                 _engine_type = getattr(self.settings, 'engine', 'fish14')
                 if _engine_type == 'kokoro':
-                    update_splash(t("MAIN_SPLASH_LOADING_KOKORO"), 0.48)
+                    update_splash("Loading Kokoro voice engine…", 0.48)
                     _tts_stop = threading.Event()
                     _tts_pulse = threading.Thread(
                         target=_pulse,
-                        args=(t("MAIN_SPLASH_LOADING_KOKORO"), 0.48, 0.62, _tts_stop),
+                        args=("Loading Kokoro voice engine…", 0.48, 0.62, _tts_stop),
                         daemon=True,
                     )
                     _tts_pulse.start()
                     self.tts = KokoroEngine(use_cuda=self.settings.use_cuda)
                     _tts_stop.set()
                     _tts_pulse.join()
-                    update_splash(t("MAIN_SPLASH_KOKORO_READY"), 0.63)
+                    update_splash("Kokoro engine ready", 0.63)
                 else:
                     _tts_label = _eng_labels.get(_engine_type, "TTS")
-                    update_splash(t("MAIN_SPLASH_LOADING_ENGINE", engine_name=_tts_label), 0.48)
+                    update_splash(f"Loading {_tts_label} engine…", 0.48)
                     _tts_stop = threading.Event()
                     _tts_pulse = threading.Thread(
                         target=_pulse,
-                        args=(t("MAIN_SPLASH_LOADING_ENGINE", engine_name=_tts_label), 0.48, 0.62, _tts_stop),
+                        args=(f"Loading {_tts_label} engine…", 0.48, 0.62, _tts_stop),
                         daemon=True,
                     )
                     _tts_pulse.start()
@@ -505,7 +499,7 @@ class KoKoFishApp:
                     )
                     _tts_stop.set()
                     _tts_pulse.join()
-                    update_splash(t("MAIN_SPLASH_ENGINE_READY", engine_name=_tts_label), 0.63)
+                    update_splash(f"{_tts_label} engine ready", 0.63)
 
                 # ── AI features (llama-cpp-python + Qwen) ───────────────────
                 from tag_suggester import (
@@ -520,7 +514,7 @@ class KoKoFishApp:
                 _set_llm_gpu(bool(getattr(self.settings, "use_cuda", False)))
 
                 if not _llm_avail():
-                    update_splash(t("MAIN_SPLASH_INSTALLING_AI"), 0.66)
+                    update_splash("Installing AI features (~60 MB)…", 0.66)
                     _llama_done = threading.Event()
                     _llama_ok = [False]
 
@@ -532,15 +526,15 @@ class KoKoFishApp:
                     _llama_done.wait()
                     if _llama_ok[0]:
                         logger.info("llama-cpp-python installed successfully.")
-                        update_splash(t("MAIN_SPLASH_AI_INSTALLED"), 0.70)
+                        update_splash("AI features installed", 0.70)
                     else:
                         logger.warning("llama-cpp-python install failed; AI features unavailable.")
-                        update_splash(t("MAIN_SPLASH_AI_FAILED"), 0.70)
+                        update_splash("AI install failed — Assisted Flow unavailable", 0.70)
                 else:
-                    update_splash(t("MAIN_SPLASH_AI_INSTALLED"), 0.68)
+                    update_splash("AI features ready", 0.68)
 
                 if _llm_avail() and not _qwen_ready():
-                    update_splash(t("MAIN_SPLASH_DOWNLOADING_QWEN"), 0.72)
+                    update_splash("Downloading Qwen AI model (~400 MB)…", 0.72)
                     _qwen_done = threading.Event()
                     _qwen_ok = [False]
 
@@ -555,14 +549,14 @@ class KoKoFishApp:
                     _qwen_done.wait()
                     if _qwen_ok[0]:
                         logger.info("Qwen model downloaded successfully.")
-                        update_splash(t("MAIN_SPLASH_QWEN_READY"), 0.94)
+                        update_splash("Qwen model ready", 0.94)
                     else:
                         logger.warning("Qwen model download failed; AI features unavailable.")
-                        update_splash(t("MAIN_SPLASH_QWEN_FAILED"), 0.94)
+                        update_splash("Qwen download failed — AI features unavailable", 0.94)
                 elif _llm_avail():
-                    update_splash(t("MAIN_SPLASH_QWEN_READY"), 0.94)
+                    update_splash("Qwen model ready", 0.94)
 
-                update_splash(t("MAIN_SPLASH_READY"), 1.0)
+                update_splash("Ready!", 1.0)
                 time.sleep(0.4)
 
             except Exception as exc:
@@ -593,13 +587,14 @@ class KoKoFishApp:
             logger.error("Fatal initialization error: %s", init_error[0])
             import tkinter.messagebox as mb
             mb.showerror(
-                f"KoKoFish — {t('MAIN_STARTUP_ERROR_TITLE')}",
-                t("MAIN_STARTUP_ERROR_BODY", error=init_error[0])
+                "KoKoFish — Startup Error",
+                f"An error occurred during initialization:\n\n{init_error[0]}\n\n"
+                "The app will launch but some features may not work."
             )
 
         # --- Phase 3: Transform splash into main window ---
         splash_container.destroy()
-
+        
         # Windows requires withdraw/deiconify when toggling overrideredirect
         main_root.withdraw()
         main_root.overrideredirect(False)
@@ -608,7 +603,7 @@ class KoKoFishApp:
         main_root.geometry(self.settings.window_geometry)
         main_root.minsize(1024, 680)
         main_root.configure(fg_color=COLORS["bg_dark"])
-
+        
         # Restore window
         main_root.deiconify()
 
@@ -634,16 +629,16 @@ class KoKoFishApp:
         # Update engine status labels
         _active_engine = getattr(self.settings, 'engine', 'kokoro')
         if _active_engine == 'kokoro' or is_fish_speech_ready(_active_engine):
-            self.ui.update_tts_status(t("MAIN_ENGINE_READY"), COLORS["success"])
+            self.ui.update_tts_status("✅  Engine ready (model loads on first use)", COLORS["success"])
         else:
             _eng_labels = {"fish14": "Fish-Speech 1.4", "s1mini": "S1 Mini", "s1": "S1"}
             _label = _eng_labels.get(_active_engine, _active_engine)
             self.ui.update_tts_status(
-                t("MAIN_ENGINE_NOT_DOWNLOADED", label=_label),
+                f"⬇  {_label} not downloaded — select it in Settings to download",
                 COLORS["warning"],
             )
 
-        self.ui.update_stt_status(t("MAIN_ENGINE_READY"), COLORS["success"])
+        self.ui.update_stt_status("✅  Engine ready (model loads on first use)", COLORS["success"])
 
         # Save settings on exit
         def on_close():

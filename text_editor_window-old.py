@@ -16,7 +16,6 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from lang import t
 from ui import COLORS, FONT_FAMILY
 from tag_suggester import (
     FISH_TAGS,
@@ -60,7 +59,7 @@ class TextEditorWindow(ctk.CTkToplevel):
         self._spell_checker = None  # SpellChecker instance (lazy-loaded)
         self._tag_thread: threading.Thread = None
 
-        self.title(t("EDITOR_WINDOW_TITLE", name=item.get('name', 'Untitled')))
+        self.title(f"Edit — {item.get('name', 'Untitled')}")
         self.geometry("1100x680")
         self.minsize(800, 500)
         self.configure(fg_color=COLORS["bg_dark"])
@@ -98,7 +97,7 @@ class TextEditorWindow(ctk.CTkToplevel):
             text_color=COLORS["text_primary"],
         ).pack(side="left", padx=14, pady=10)
 
-        char_lbl_text = t("EDITOR_CHAR_COUNT", count=f"{len(self.item.get('text','')  ):,}")
+        char_lbl_text = f"{len(self.item.get('text','')  ):,} chars"
         self._char_label = ctk.CTkLabel(
             top,
             text=char_lbl_text,
@@ -150,20 +149,20 @@ class TextEditorWindow(ctk.CTkToplevel):
         tabs.grid(row=0, column=1, sticky="nsew")
 
         if is_fish:
-            tabs.add(t("EDITOR_TAB_TAGS"))
-            self._build_fish_tag_panel(tabs.tab(t("EDITOR_TAB_TAGS")))
+            tabs.add("🏷 Tags")
+            self._build_fish_tag_panel(tabs.tab("🏷 Tags"))
         else:
-            tabs.add(t("EDITOR_TAB_KOKORO"))
-            self._build_kokoro_panel(tabs.tab(t("EDITOR_TAB_KOKORO")))
+            tabs.add("ℹ Kokoro")
+            self._build_kokoro_panel(tabs.tab("ℹ Kokoro"))
 
-        tabs.add(t("EDITOR_TAB_ENHANCE"))
-        self._build_enhance_tab(tabs.tab(t("EDITOR_TAB_ENHANCE")))
+        tabs.add("✨ Enhance")
+        self._build_enhance_tab(tabs.tab("✨ Enhance"))
 
-        tabs.add(t("EDITOR_TAB_TONE"))
-        self._build_tone_tab(tabs.tab(t("EDITOR_TAB_TONE")))
+        tabs.add("🎭 Tone")
+        self._build_tone_tab(tabs.tab("🎭 Tone"))
 
-        tabs.add(t("EDITOR_TAB_TRANSLATE"))
-        self._build_translate_tab(tabs.tab(t("EDITOR_TAB_TRANSLATE")))
+        tabs.add("🌐 Translate")
+        self._build_translate_tab(tabs.tab("🌐 Translate"))
 
     def _build_fish_tag_panel(self, parent):
         # Wrap everything in a scrollable frame so 16 buttons don't overflow
@@ -174,14 +173,14 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             scroll,
-            text=t("EDITOR_TAGS_PANEL_TITLE"),
+            text="🏷  Tags",
             font=(FONT_FAMILY, 13, "bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor="w", padx=10, pady=(10, 6))
 
         ctk.CTkLabel(
             scroll,
-            text=t("EDITOR_TAGS_CLICK_HINT"),
+            text="Click to insert at cursor",
             font=(FONT_FAMILY, 10),
             text_color=COLORS["text_muted"],
         ).pack(anchor="w", padx=10, pady=(0, 8))
@@ -219,14 +218,22 @@ class TextEditorWindow(ctk.CTkToplevel):
     def _build_kokoro_panel(self, parent):
         ctk.CTkLabel(
             parent,
-            text=t("EDITOR_KOKORO_PANEL_TITLE"),
+            text="ℹ  Kokoro",
             font=(FONT_FAMILY, 13, "bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor="w", padx=10, pady=(10, 6))
 
         ctk.CTkLabel(
             parent,
-            text=t("EDITOR_KOKORO_INFO"),
+            text=(
+                "Kokoro uses style vectors,\n"
+                "not inline text tags.\n\n"
+                "Use the voice dropdown\n"
+                "and blend slider to\n"
+                "adjust speaking style.\n\n"
+                "Grammar Check and\n"
+                "text cleanup still work."
+            ),
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_secondary"],
             justify="left",
@@ -234,14 +241,23 @@ class TextEditorWindow(ctk.CTkToplevel):
 
     def _build_enhance_tab(self, parent):
         ctk.CTkLabel(
-            parent, text=t("EDITOR_ENHANCE_TITLE"),
+            parent, text="Improve for TTS",
             font=(FONT_FAMILY, 12, "bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor="w", padx=10, pady=(10, 2))
 
         ctk.CTkLabel(
             parent,
-            text=t("EDITOR_ENHANCE_DESC"),
+            text=(
+                "Rewrites the text to sound\n"
+                "more natural when spoken:\n\n"
+                "• Adds natural pauses\n"
+                "• Breaks long sentences\n"
+                "• Expands abbreviations\n"
+                "• Improves TTS pacing\n\n"
+                "Result shown as a preview\n"
+                "— accept or discard."
+            ),
             font=(FONT_FAMILY, 10),
             text_color=COLORS["text_secondary"],
             justify="left",
@@ -249,7 +265,7 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         ctk.CTkButton(
             parent,
-            text=t("EDITOR_ENHANCE_BTN"),
+            text="✨ Enhance for TTS",
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             font=(FONT_FAMILY, 11, "bold"),
@@ -260,14 +276,14 @@ class TextEditorWindow(ctk.CTkToplevel):
 
     def _build_tone_tab(self, parent):
         ctk.CTkLabel(
-            parent, text=t("EDITOR_TONE_TITLE"),
+            parent, text="Rewrite Tone",
             font=(FONT_FAMILY, 12, "bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor="w", padx=10, pady=(10, 2))
 
         ctk.CTkLabel(
             parent,
-            text=t("EDITOR_TONE_DESC"),
+            text="Choose a tone and preview\na rewrite. Accept or discard.",
             font=(FONT_FAMILY, 10),
             text_color=COLORS["text_secondary"],
             justify="left",
@@ -289,7 +305,7 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         ctk.CTkButton(
             parent,
-            text=t("EDITOR_TONE_BTN_PREVIEW"),
+            text="🎭 Preview Rewrite",
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             font=(FONT_FAMILY, 11, "bold"),
@@ -300,7 +316,11 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             parent,
-            text=t("EDITOR_TONE_NOTE"),
+            text=(
+                "The original text is never\n"
+                "changed unless you click\n"
+                "Accept in the preview."
+            ),
             font=(FONT_FAMILY, 9),
             text_color=COLORS["text_muted"],
             justify="left",
@@ -308,14 +328,14 @@ class TextEditorWindow(ctk.CTkToplevel):
 
     def _build_translate_tab(self, parent):
         ctk.CTkLabel(
-            parent, text=t("EDITOR_TRANSLATE_TITLE"),
+            parent, text="Translate Text",
             font=(FONT_FAMILY, 12, "bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor="w", padx=10, pady=(10, 2))
 
         ctk.CTkLabel(
             parent,
-            text=t("EDITOR_TRANSLATE_DESC"),
+            text="Choose a target language,\ntranslate, then accept or\ndiscard the result.",
             font=(FONT_FAMILY, 10),
             text_color=COLORS["text_secondary"],
             justify="left",
@@ -351,7 +371,7 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         self._translate_btn = ctk.CTkButton(
             parent,
-            text=t("EDITOR_TRANSLATE_BTN"),
+            text="🌐 Translate",
             fg_color="#e76f51",
             hover_color="#f4a261",
             font=(FONT_FAMILY, 11, "bold"),
@@ -365,7 +385,7 @@ class TextEditorWindow(ctk.CTkToplevel):
         if not (is_llm_available() and is_qwen_model_ready()):
             ctk.CTkLabel(
                 parent,
-                text=t("EDITOR_TRANSLATE_WARN_NO_AI"),
+                text="⚠ AI features not available.\nInstall via Settings.",
                 font=(FONT_FAMILY, 9),
                 text_color=COLORS["danger"],
                 justify="left",
@@ -373,7 +393,11 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             parent,
-            text=t("EDITOR_TRANSLATE_NOTE"),
+            text=(
+                "The original text is never\n"
+                "changed unless you click\n"
+                "Accept in the preview."
+            ),
             font=(FONT_FAMILY, 9),
             text_color=COLORS["text_muted"],
             justify="left",
@@ -382,22 +406,22 @@ class TextEditorWindow(ctk.CTkToplevel):
     def _translate_text(self):
         text = self._textbox.get("1.0", "end-1c").strip()
         if not text:
-            self._set_status(t("EDITOR_TRANSLATE_NOTHING"), COLORS["warning"])
+            self._set_status("Nothing to translate.", COLORS["warning"])
             return
 
         from tag_suggester import is_llm_available, is_qwen_model_ready
         if not is_llm_available():
-            self._set_status(t("EDITOR_TRANSLATE_NO_LLM"), COLORS["danger"])
+            self._set_status("llama-cpp-python not installed — cannot translate. Install it in Settings.", COLORS["danger"])
             return
         if not is_qwen_model_ready():
-            self._set_status(t("EDITOR_TRANSLATE_NO_MODEL"), COLORS["danger"])
+            self._set_status("Qwen model not downloaded — go to Settings → Download Model.", COLORS["danger"])
             return
 
         target_lang = self._translate_lang_var.get()
         target_tone = getattr(self, "_translate_tone_var", None)
         target_tone = target_tone.get() if target_tone else "Natural"
-        self._translate_btn.configure(state="disabled", text=t("EDITOR_TRANSLATE_BTN_TRANSLATING"))
-        self._set_status(t("EDITOR_TRANSLATE_STATUS", lang=target_lang), COLORS["warning"])
+        self._translate_btn.configure(state="disabled", text="Translating…")
+        self._set_status(f"Translating → {target_lang}…", COLORS["warning"])
 
         def _run():
             _err = None
@@ -409,18 +433,18 @@ class TextEditorWindow(ctk.CTkToplevel):
                 _err = str(exc)
 
             def _show():
-                self._translate_btn.configure(state="normal", text=t("EDITOR_TRANSLATE_BTN"))
+                self._translate_btn.configure(state="normal", text="🌐 Translate")
                 if _err:
-                    self._set_status(t("EDITOR_LLM_ERROR", error=_err), COLORS["danger"])
+                    self._set_status(f"LLM error: {_err}", COLORS["danger"])
                     return
                 if not result or not result.strip():
-                    self._set_status(t("EDITOR_TRANSLATE_EMPTY"), COLORS["danger"])
+                    self._set_status("Translation returned empty — check Qwen model is working.", COLORS["danger"])
                     return
                 if result.strip() == text.strip():
-                    self._set_status(t("EDITOR_TRANSLATE_UNCHANGED"), COLORS["warning"])
+                    self._set_status("Translation returned unchanged text — model may not be loaded correctly.", COLORS["warning"])
                     return
                 self._set_status("")
-                self._show_diff_dialog(text, result, source=t("EDITOR_DIFF_SOURCE_TRANSLATE", lang=target_lang))
+                self._show_diff_dialog(text, result, source=f"🌐 Translate → {target_lang}")
                 threading.Thread(target=unload_llm, daemon=True).start()
 
             self.after(0, _show)
@@ -437,7 +461,7 @@ class TextEditorWindow(ctk.CTkToplevel):
         # Left: action buttons
         ctk.CTkButton(
             bar,
-            text=t("EDITOR_BTN_GRAMMAR_CHECK"),
+            text="📝 Grammar Check",
             fg_color=COLORS["bg_input"],
             hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"],
@@ -449,7 +473,7 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         suggest_btn = ctk.CTkButton(
             bar,
-            text=t("EDITOR_BTN_SUGGEST_TAGS"),
+            text="💡 Suggest Tags",
             fg_color=COLORS["bg_input"],
             hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"],
@@ -459,12 +483,12 @@ class TextEditorWindow(ctk.CTkToplevel):
             **btn,
         )
         if self.engine == "kokoro":
-            suggest_btn.configure(state="disabled", text=t("EDITOR_BTN_SUGGEST_TAGS_DISABLED"))
+            suggest_btn.configure(state="disabled", text="💡 Suggest Tags (Fish only)")
         suggest_btn.pack(side="left", padx=(0, 6), pady=9)
 
         self._gen_btn = ctk.CTkButton(
             bar,
-            text=t("EDITOR_BTN_GENERATE_TAGS"),
+            text="🤖 Generate Tags (AI)",
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             width=160,
@@ -486,7 +510,7 @@ class TextEditorWindow(ctk.CTkToplevel):
         # Right: save / cancel
         ctk.CTkButton(
             bar,
-            text=t("EDITOR_BTN_CANCEL"),
+            text="✕ Cancel",
             fg_color=COLORS["bg_input"],
             hover_color=COLORS["bg_card_hover"],
             border_color=COLORS["border"],
@@ -498,7 +522,7 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         ctk.CTkButton(
             bar,
-            text=t("EDITOR_BTN_SAVE"),
+            text="✔ Save",
             fg_color=COLORS["success"],
             hover_color="#05b890",
             width=90,
@@ -522,7 +546,7 @@ class TextEditorWindow(ctk.CTkToplevel):
 
     def _on_text_change(self, _event=None):
         text = self._textbox.get("1.0", "end-1c")
-        self._char_label.configure(text=t("EDITOR_CHAR_COUNT", count=f"{len(text):,}"))
+        self._char_label.configure(text=f"{len(text):,} chars")
 
     def _set_status(self, msg: str, color: str = None):
         self._status_label.configure(
@@ -537,7 +561,7 @@ class TextEditorWindow(ctk.CTkToplevel):
         if not is_llm_available():
             ctk.CTkLabel(
                 self._ai_download_frame,
-                text=t("EDITOR_AI_WARN_NO_LLAMA"),
+                text="⚠ llama-cpp-python\nnot installed",
                 font=(FONT_FAMILY, 10),
                 text_color=COLORS["warning"],
                 justify="left",
@@ -545,14 +569,14 @@ class TextEditorWindow(ctk.CTkToplevel):
         elif not is_qwen_model_ready():
             ctk.CTkLabel(
                 self._ai_download_frame,
-                text=t("EDITOR_AI_QWEN_NOT_DL"),
+                text="Qwen model not downloaded\n(~400 MB)",
                 font=(FONT_FAMILY, 10),
                 text_color=COLORS["text_muted"],
                 justify="left",
             ).pack(anchor="w", pady=(0, 4))
             ctk.CTkButton(
                 self._ai_download_frame,
-                text=t("EDITOR_AI_BTN_DL_MODEL"),
+                text="⬇ Download AI Model",
                 fg_color=COLORS["accent"],
                 hover_color=COLORS["accent_hover"],
                 font=(FONT_FAMILY, 11),
@@ -562,7 +586,7 @@ class TextEditorWindow(ctk.CTkToplevel):
         else:
             ctk.CTkLabel(
                 self._ai_download_frame,
-                text=t("EDITOR_AI_TAGGER_READY"),
+                text="✅ AI tagger ready",
                 font=(FONT_FAMILY, 10),
                 text_color=COLORS["success"],
             ).pack(anchor="w")
@@ -581,8 +605,12 @@ class TextEditorWindow(ctk.CTkToplevel):
         """Grammar + spell check using Qwen 0.5B — same model as Generate Tags."""
         if not is_llm_available():
             self._show_install_dialog(
-                title=t("EDITOR_INSTALL_GRAMMAR_TITLE"),
-                message=t("EDITOR_INSTALL_GRAMMAR_BODY"),
+                title="Install AI Grammar Checker",
+                message=(
+                    "Grammar Check uses the same Qwen 0.5B model as Generate Tags (~60 MB package + ~400 MB model).\n"
+                    "After install, the model will also be downloaded.\n\n"
+                    "Install now?"
+                ),
                 next_step=self._ensure_qwen_then_grammar,
                 install_fn=self._run_llama_install,
             )
@@ -592,8 +620,8 @@ class TextEditorWindow(ctk.CTkToplevel):
     def _ensure_qwen_then_grammar(self):
         if not is_qwen_model_ready():
             self._show_download_dialog(
-                title=t("EDITOR_DL_QWEN_TITLE_GRAMMAR"),
-                message=t("EDITOR_DL_QWEN_BODY_GRAMMAR"),
+                title="Download Qwen Model",
+                message="The Qwen 0.5B model (~400 MB) is needed for Grammar Check.\n\nDownload now?",
                 next_step=lambda: self._run_grammar_check_thread(use_llm=True),
                 download_fn=self._run_qwen_download,
             )
@@ -602,7 +630,7 @@ class TextEditorWindow(ctk.CTkToplevel):
 
     def _run_grammar_check_thread(self, use_llm: bool = True):
         label = "grammar & spelling" if use_llm else "spelling"
-        self._set_status(t("EDITOR_GRAMMAR_STATUS", label=label), COLORS["warning"])
+        self._set_status(f"Checking {label}…", COLORS["warning"])
         threading.Thread(
             target=self._run_grammar_check,
             args=(use_llm,),
@@ -617,13 +645,13 @@ class TextEditorWindow(ctk.CTkToplevel):
                     self.after(0, lambda m=msg: self._set_status(m, COLORS["warning"]))
 
                 corrected = grammar_check(text, on_progress=_progress)
-                source = t("EDITOR_DIFF_SOURCE_GRAMMAR")
+                source = "Qwen grammar & spell check"
             else:
                 corrected = self._spellcheck_fallback(text)
                 source = "Spell check (fallback)"
 
             if corrected.strip() == text.strip():
-                self.after(0, lambda: self._set_status(t("EDITOR_GRAMMAR_NO_ISSUES"), COLORS["success"]))
+                self.after(0, lambda: self._set_status("✅ No issues found.", COLORS["success"]))
                 if use_llm:
                     threading.Thread(target=unload_llm, daemon=True).start()
                 return
@@ -637,7 +665,7 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         except Exception as exc:
             err = repr(exc) if not str(exc) or str(exc) == "None" else str(exc)
-            self.after(0, lambda e=err: self._set_status(t("EDITOR_GRAMMAR_CHECK_ERROR", error=e), COLORS["danger"]))
+            self.after(0, lambda e=err: self._set_status(f"Check error: {e}", COLORS["danger"]))
 
     def _spellcheck_fallback(self, text: str) -> str:
         """Basic spell correction using pyspellchecker when Qwen is unavailable."""
@@ -658,20 +686,24 @@ class TextEditorWindow(ctk.CTkToplevel):
 
     def _suggest_tags(self):
         text = self._textbox.get("1.0", "end-1c")
-        self._set_status(t("EDITOR_SUGGEST_TAGS_STATUS"), COLORS["warning"])
+        self._set_status("Suggesting tags…", COLORS["warning"])
         try:
             tagged = suggest_tags(text)
-            self._show_diff_dialog(text, tagged, source=t("EDITOR_DIFF_SOURCE_RULE_BASED"))
+            self._show_diff_dialog(text, tagged, source="Rule-based suggestions")
             self._set_status("")
         except Exception as exc:
-            self._set_status(t("EDITOR_SUGGEST_ERROR", error=exc), COLORS["danger"])
+            self._set_status(f"Error: {exc}", COLORS["danger"])
 
     def _generate_tags_ai(self):
         """Entry point for Generate Tags button — auto-installs deps if needed."""
         if not is_llm_available():
             self._show_install_dialog(
-                title=t("EDITOR_INSTALL_AI_TAGGER_TITLE"),
-                message=t("EDITOR_INSTALL_AI_TAGGER_BODY"),
+                title="Install AI Tagger",
+                message=(
+                    "The AI tagger requires llama-cpp-python (~60 MB).\n"
+                    "After install, the Qwen 0.5B model (~400 MB) will also be downloaded.\n\n"
+                    "Install now?"
+                ),
                 next_step=self._ensure_qwen_then_generate,
                 install_fn=self._run_llama_install,
             )
@@ -683,8 +715,8 @@ class TextEditorWindow(ctk.CTkToplevel):
         """Check model file; download if missing, then run generation."""
         if not is_qwen_model_ready():
             self._show_download_dialog(
-                title=t("EDITOR_DL_QWEN_TITLE"),
-                message=t("EDITOR_DL_QWEN_BODY_TAGS"),
+                title="Download Qwen 0.5B Model",
+                message="The Qwen 0.5B model (~400 MB) is needed for AI tagging.\n\nDownload now?",
                 next_step=self._run_generation,
                 download_fn=self._run_qwen_download,
             )
@@ -693,8 +725,8 @@ class TextEditorWindow(ctk.CTkToplevel):
 
     def _run_generation(self):
         """Run Qwen inference — both deps are confirmed present."""
-        self._gen_btn.configure(state="disabled", text=t("EDITOR_BTN_GENERATING"))
-        self._set_status(t("EDITOR_GRAMMAR_LOADING_QWEN"), COLORS["warning"])
+        self._gen_btn.configure(state="disabled", text="🤖 Generating…")
+        self._set_status("Loading Qwen model…", COLORS["warning"])
         text = self._textbox.get("1.0", "end-1c")
 
         def _worker():
@@ -705,16 +737,16 @@ class TextEditorWindow(ctk.CTkToplevel):
                 tagged = generate_tags(text, on_progress=_progress)
 
                 def _show():
-                    self._show_diff_dialog(text, tagged, source=t("EDITOR_DIFF_SOURCE_QWEN"))
+                    self._show_diff_dialog(text, tagged, source="Qwen AI suggestions")
                     self._set_status("")
-                    self._gen_btn.configure(state="normal", text=t("EDITOR_BTN_GENERATE_TAGS"))
+                    self._gen_btn.configure(state="normal", text="🤖 Generate Tags (AI)")
                     threading.Thread(target=unload_llm, daemon=True).start()
 
                 self.after(0, _show)
             except Exception as exc:
                 def _err():
-                    self._set_status(t("EDITOR_SUGGEST_ERROR", error=exc), COLORS["danger"])
-                    self._gen_btn.configure(state="normal", text=t("EDITOR_BTN_GENERATE_TAGS"))
+                    self._set_status(f"Error: {exc}", COLORS["danger"])
+                    self._gen_btn.configure(state="normal", text="🤖 Generate Tags (AI)")
                 self.after(0, _err)
 
         threading.Thread(target=_worker, daemon=True, name="GenTags").start()
@@ -723,8 +755,8 @@ class TextEditorWindow(ctk.CTkToplevel):
         """Enhance tab: improve text for natural TTS delivery."""
         if not is_llm_available():
             self._show_install_dialog(
-                title=t("EDITOR_INSTALL_ENHANCE_TITLE"),
-                message=t("EDITOR_INSTALL_ENHANCE_BODY"),
+                title="Install AI Model",
+                message="Enhance for TTS uses Qwen 0.5B (~60 MB package + ~400 MB model).\n\nInstall now?",
                 next_step=self._ensure_qwen_then_enhance,
                 install_fn=self._run_llama_install,
             )
@@ -734,8 +766,8 @@ class TextEditorWindow(ctk.CTkToplevel):
     def _ensure_qwen_then_enhance(self):
         if not is_qwen_model_ready():
             self._show_download_dialog(
-                title=t("EDITOR_DL_QWEN_TITLE_GRAMMAR"),
-                message=t("EDITOR_DL_QWEN_BODY_ENHANCE"),
+                title="Download Qwen Model",
+                message="The Qwen 0.5B model (~400 MB) is needed.\n\nDownload now?",
                 next_step=self._run_enhance,
                 download_fn=self._run_qwen_download,
             )
@@ -743,7 +775,7 @@ class TextEditorWindow(ctk.CTkToplevel):
         self._run_enhance()
 
     def _run_enhance(self):
-        self._set_status(t("EDITOR_ENHANCE_STATUS"), COLORS["warning"])
+        self._set_status("Enhancing for TTS…", COLORS["warning"])
         text = self._textbox.get("1.0", "end-1c")
 
         def _worker():
@@ -753,12 +785,12 @@ class TextEditorWindow(ctk.CTkToplevel):
                 result = enhance_for_tts(text, engine=self.engine, on_progress=_progress)
 
                 def _show():
-                    self._show_diff_dialog(text, result, source=t("EDITOR_DIFF_SOURCE_ENHANCE"))
+                    self._show_diff_dialog(text, result, source="✨ Enhance for TTS")
                     self._set_status("")
                     threading.Thread(target=unload_llm, daemon=True).start()
                 self.after(0, _show)
             except Exception as exc:
-                self.after(0, lambda e=str(exc): self._set_status(t("EDITOR_SUGGEST_ERROR", error=e), COLORS["danger"]))
+                self.after(0, lambda e=str(exc): self._set_status(f"Error: {e}", COLORS["danger"]))
 
         threading.Thread(target=_worker, daemon=True, name="EnhanceTTS").start()
 
@@ -766,8 +798,8 @@ class TextEditorWindow(ctk.CTkToplevel):
         """Tone tab: rewrite text in the selected tone."""
         if not is_llm_available():
             self._show_install_dialog(
-                title=t("EDITOR_INSTALL_TONE_TITLE"),
-                message=t("EDITOR_INSTALL_TONE_BODY"),
+                title="Install AI Model",
+                message="Tone Rewrite uses Qwen 0.5B (~60 MB package + ~400 MB model).\n\nInstall now?",
                 next_step=self._ensure_qwen_then_tone,
                 install_fn=self._run_llama_install,
             )
@@ -777,8 +809,8 @@ class TextEditorWindow(ctk.CTkToplevel):
     def _ensure_qwen_then_tone(self):
         if not is_qwen_model_ready():
             self._show_download_dialog(
-                title=t("EDITOR_DL_QWEN_TITLE_GRAMMAR"),
-                message=t("EDITOR_DL_QWEN_BODY_TONE"),
+                title="Download Qwen Model",
+                message="The Qwen 0.5B model (~400 MB) is needed.\n\nDownload now?",
                 next_step=self._run_tone_rewrite,
                 download_fn=self._run_qwen_download,
             )
@@ -788,7 +820,7 @@ class TextEditorWindow(ctk.CTkToplevel):
     def _run_tone_rewrite(self):
         tone = getattr(self, "_tone_var", None)
         tone = tone.get() if tone else "Neutral"
-        self._set_status(t("EDITOR_TONE_STATUS", tone=tone), COLORS["warning"])
+        self._set_status(f"Rewriting as {tone}…", COLORS["warning"])
         text = self._textbox.get("1.0", "end-1c")
 
         def _worker():
@@ -798,18 +830,18 @@ class TextEditorWindow(ctk.CTkToplevel):
                 result = rewrite_tone(text, tone=tone, on_progress=_progress)
 
                 def _show():
-                    self._show_diff_dialog(text, result, source=t("EDITOR_DIFF_SOURCE_TONE", tone=tone))
+                    self._show_diff_dialog(text, result, source=f"🎭 Tone: {tone}")
                     self._set_status("")
                     threading.Thread(target=unload_llm, daemon=True).start()
                 self.after(0, _show)
             except Exception as exc:
-                self.after(0, lambda e=str(exc): self._set_status(t("EDITOR_SUGGEST_ERROR", error=e), COLORS["danger"]))
+                self.after(0, lambda e=str(exc): self._set_status(f"Error: {e}", COLORS["danger"]))
 
         threading.Thread(target=_worker, daemon=True, name="ToneRewrite").start()
 
     def _download_qwen(self):
         """Download button in the side panel — shows inline status."""
-        self._set_status(t("EDITOR_AI_DL_STATUS"), COLORS["warning"])
+        self._set_status("Downloading Qwen model (~400 MB)…", COLORS["warning"])
 
         def _progress(msg, _frac):
             self.after(0, lambda m=msg: self._set_status(m, COLORS["warning"]))
@@ -817,10 +849,10 @@ class TextEditorWindow(ctk.CTkToplevel):
         def _complete(ok, msg):
             def _ui():
                 if ok:
-                    self._set_status(t("EDITOR_AI_MODEL_READY"), COLORS["success"])
+                    self._set_status("✅ Qwen model ready.", COLORS["success"])
                     self._refresh_ai_status_panel()
                 else:
-                    self._set_status(t("EDITOR_AI_DL_FAILED", error=msg), COLORS["danger"])
+                    self._set_status(f"Download failed: {msg}", COLORS["danger"])
             self.after(0, _ui)
 
         download_qwen_model(on_progress=_progress, on_complete=_complete)
@@ -890,14 +922,14 @@ class TextEditorWindow(ctk.CTkToplevel):
         log.pack(padx=16, pady=(0, 8))
 
         status_lbl = ctk.CTkLabel(
-            dlg, text=t("EDITOR_PROGRESS_TITLE"),
+            dlg, text="Working…",
             font=(FONT_FAMILY, 11),
             text_color=COLORS["text_muted"],
         )
         status_lbl.pack()
 
         close_btn = ctk.CTkButton(
-            dlg, text=t("EDITOR_PROGRESS_CLOSE"), state="disabled",
+            dlg, text="Close", state="disabled",
             fg_color=COLORS["success"], hover_color="#05b890",
             font=(FONT_FAMILY, 12, "bold"), width=100, height=32,
             command=dlg.destroy,
@@ -978,20 +1010,18 @@ class TextEditorWindow(ctk.CTkToplevel):
     # Diff / review dialog
     # ------------------------------------------------------------------
 
-    # Canonical source identifiers for tag operations (language-independent)
-    _TAG_SOURCES_KEYS = {"EDITOR_DIFF_SOURCE_RULE_BASED", "EDITOR_DIFF_SOURCE_QWEN"}
+    # Sources that are tag operations vs text-change operations
+    _TAG_SOURCES = {"Rule-based suggestions", "Qwen AI suggestions"}
 
     def _show_diff_dialog(self, original: str, suggested: str, source: str = ""):
         """Show a side-by-side diff dialog with word-level highlights. Accept or discard."""
         if original.strip() == suggested.strip():
-            messagebox.showinfo(t("COMMON_NO_CHANGES"), t("COMMON_NO_CHANGES_SUGGESTED"), parent=self)
+            messagebox.showinfo("No Changes", "No changes were suggested.", parent=self)
             return
 
-        # Determine if this is a tag operation by checking the source string against
-        # the translated canonical values for rule-based and Qwen AI suggestions.
-        is_tag_op = source in {t("EDITOR_DIFF_SOURCE_RULE_BASED"), t("EDITOR_DIFF_SOURCE_QWEN")}
-        window_title = t("EDITOR_DIFF_REVIEW_TAGS", source=source) if is_tag_op else t("EDITOR_DIFF_REVIEW_CHANGES", source=source)
-        right_label  = t("EDITOR_DIFF_RIGHT_TAGS") if is_tag_op else t("EDITOR_DIFF_RIGHT_SUGGESTED")
+        is_tag_op = source in self._TAG_SOURCES
+        window_title = f"Review Tags — {source}" if is_tag_op else f"Review Changes — {source}"
+        right_label  = "With Tags" if is_tag_op else "Suggested"
 
         dlg = ctk.CTkToplevel(self)
         dlg.title(window_title)
@@ -1001,7 +1031,7 @@ class TextEditorWindow(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             dlg,
-            text=t("EDITOR_DIFF_INSTRUCTIONS"),
+            text="Review the suggested changes. Accept to apply, Discard to keep the original.",
             font=(FONT_FAMILY, 12),
             text_color=COLORS["text_secondary"],
         ).pack(padx=14, pady=(10, 6))
@@ -1015,16 +1045,16 @@ class TextEditorWindow(ctk.CTkToplevel):
         # Column headers with a small legend
         hdr_orig = ctk.CTkFrame(panels, fg_color="transparent")
         hdr_orig.grid(row=0, column=0, sticky="w", padx=4, pady=(0, 2))
-        ctk.CTkLabel(hdr_orig, text=t("COMMON_ORIGINAL"), font=(FONT_FAMILY, 11, "bold"),
+        ctk.CTkLabel(hdr_orig, text="Original", font=(FONT_FAMILY, 11, "bold"),
                      text_color=COLORS["text_muted"]).pack(side="left")
-        ctk.CTkLabel(hdr_orig, text=t("COMMON_REMOVED"), font=(FONT_FAMILY, 10),
+        ctk.CTkLabel(hdr_orig, text="  removed", font=(FONT_FAMILY, 10),
                      text_color="#ef476f").pack(side="left", padx=(8, 0))
 
         hdr_sugg = ctk.CTkFrame(panels, fg_color="transparent")
         hdr_sugg.grid(row=0, column=1, sticky="w", padx=4, pady=(0, 2))
         ctk.CTkLabel(hdr_sugg, text=right_label, font=(FONT_FAMILY, 11, "bold"),
                      text_color=COLORS["accent_light"]).pack(side="left")
-        ctk.CTkLabel(hdr_sugg, text=t("COMMON_ADDED"), font=(FONT_FAMILY, 10),
+        ctk.CTkLabel(hdr_sugg, text="  added", font=(FONT_FAMILY, 10),
                      text_color="#06d6a0").pack(side="left", padx=(8, 0))
 
         orig_box = ctk.CTkTextbox(panels, fg_color=COLORS["bg_input"], font=(FONT_FAMILY, 12),
@@ -1051,10 +1081,10 @@ class TextEditorWindow(ctk.CTkToplevel):
             self._on_text_change()
             dlg.destroy()
 
-        ctk.CTkButton(btn_bar, text=t("COMMON_ACCEPT"), fg_color=COLORS["success"],
+        ctk.CTkButton(btn_bar, text="✔ Accept", fg_color=COLORS["success"],
                       hover_color="#05b890", width=120, height=34,
                       font=(FONT_FAMILY, 12, "bold"), command=_accept).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(btn_bar, text=t("COMMON_DISCARD"), fg_color=COLORS["danger"],
+        ctk.CTkButton(btn_bar, text="✕ Discard", fg_color=COLORS["danger"],
                       hover_color="#d43d62", width=120, height=34,
                       font=(FONT_FAMILY, 12, "bold"), command=dlg.destroy).pack(side="left")
 

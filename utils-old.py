@@ -20,8 +20,6 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 
-from lang import t
-
 logger = logging.getLogger("KoKoFish.utils")
 
 # ---------------------------------------------------------------------------
@@ -53,7 +51,7 @@ def _download_ffmpeg(bin_dir: str, on_progress=None) -> bool:
 
     try:
         if on_progress:
-            on_progress(t("UTILS_DOWNLOADING_FFMPEG"), 0.05)
+            on_progress("Downloading FFmpeg...", 0.05)
 
         logger.info("Downloading FFmpeg from %s", URL)
 
@@ -67,7 +65,7 @@ def _download_ffmpeg(bin_dir: str, on_progress=None) -> bool:
         urllib.request.urlretrieve(URL, tmp_zip, reporthook=_reporthook)
 
         if on_progress:
-            on_progress(t("UTILS_EXTRACTING_FFMPEG"), 0.85)
+            on_progress("Extracting FFmpeg...", 0.85)
 
         with zipfile.ZipFile(tmp_zip, "r") as zf:
             for member in zf.namelist():
@@ -85,7 +83,7 @@ def _download_ffmpeg(bin_dir: str, on_progress=None) -> bool:
             pass
 
         if on_progress:
-            on_progress(t("UTILS_FFMPEG_READY"), 1.0)
+            on_progress("FFmpeg ready", 1.0)
 
         return os.path.isfile(os.path.join(bin_dir, "ffmpeg.exe"))
 
@@ -183,7 +181,7 @@ def setup_python_deps(on_progress=None) -> None:
         pkg = pip_name + version_spec
         logger.info("Auto-installing missing dependency: %s", pkg)
         if on_progress:
-            on_progress(t("UTILS_INSTALLING_PKG", pip_name=pip_name), 0.0)
+            on_progress(f"Installing {pip_name}…", 0.0)
         try:
             result = subprocess.run(
                 [venv_python, "-m", "pip", "install", pkg, "--quiet"],
