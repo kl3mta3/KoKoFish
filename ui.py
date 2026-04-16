@@ -8298,7 +8298,7 @@ class KoKoFishUI:
             if not has_nvidia_gpu():
                 messagebox.showwarning(
                     "KoKoFish",
-                    "No NVIDIA GPU detected.\nCUDA acceleration is not available on this system."
+                    t("SETTINGS_CUDA_NO_GPU_TITLE")
                 )
                 self.cuda_var.set(False)
                 return
@@ -8376,16 +8376,16 @@ class KoKoFishUI:
                     def _update():
                         self.cuda_switch.configure(state="normal")
                         self.cuda_status_label.configure(
-                            text="✅  Reverted to CPU mode",
+                            text=t("SETTINGS_GPU_REVERTED"),
                             text_color=COLORS["success"],
                         )
-                        messagebox.showinfo("Done", message)
+                        messagebox.showinfo(t("COMMON_DONE"), message)
                     self.root.after(0, _update)
 
                 revert_to_cpu_pytorch(on_complete=on_revert_complete)
             else:
                 self.cuda_status_label.configure(
-                    text="💤  CUDA installed but disabled",
+                    text=t("SETTINGS_GPU_DISABLED"),
                     text_color=COLORS["text_muted"],
                 )
         else:
@@ -8571,7 +8571,7 @@ class KoKoFishUI:
         model_size = "~2.5 GB" if engine == "s1mini" else "~6 GB"
 
         dialog = ctk.CTkToplevel(self.root)
-        dialog.title(f"HuggingFace Token Required — {engine_display}")
+        dialog.title(t("SETTINGS_HF_DIALOG_TITLE", engine=engine_display))
         dialog.geometry("520x400")
         dialog.grab_set()
         dialog.resizable(False, False)
@@ -8579,21 +8579,14 @@ class KoKoFishUI:
 
         ctk.CTkLabel(
             dialog,
-            text=f"Download {engine_display} ({model_size})",
+            text=t("SETTINGS_HF_DIALOG_HEADING", engine=engine_display, size=model_size),
             font=(FONT_FAMILY, 16, "bold"),
             text_color=COLORS["text_primary"],
         ).pack(pady=(24, 4))
 
         ctk.CTkLabel(
             dialog,
-            text=(
-                f"This model is hosted on HuggingFace and requires you to\n"
-                f"agree to its license and provide an access token.\n\n"
-                f"1. Click the link below to visit the model page\n"
-                f"2. Log in and click \"Agree\" to accept the license\n"
-                f"3. Go to huggingface.co/settings/tokens and create a token\n"
-                f"4. Paste it below"
-            ),
+            text=t("SETTINGS_HF_DIALOG_BODY"),
             font=(FONT_FAMILY, 12),
             text_color=COLORS["text_secondary"],
             justify="left",
@@ -8601,7 +8594,7 @@ class KoKoFishUI:
 
         link_btn = ctk.CTkButton(
             dialog,
-            text=f"Open Model Page: {hf_repo}",
+            text=t("SETTINGS_HF_DIALOG_OPEN_PAGE", repo=hf_repo),
             font=(FONT_FAMILY, 12),
             fg_color="transparent",
             text_color=COLORS["accent"],
@@ -8687,7 +8680,7 @@ class KoKoFishUI:
 
         download_btn = ctk.CTkButton(
             btn_row,
-            text=f"Save Token & Download",
+            text=t("SETTINGS_HF_BTN_SAVE_DOWNLOAD"),
             width=180,
             fg_color=COLORS["accent"],
             command=_start_download,
