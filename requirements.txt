@@ -5,9 +5,19 @@
 # versions into a local venv. Once installed, nothing changes.
 # =============================================================
 
+# Always prefer pre-built binary wheels — never compile from source.
+# This ensures llama-cpp-python (and others) install without CMake/C++ tools.
+--prefer-binary
+
 # --- GUI ---
 customtkinter==5.2.2
 tkinterdnd2==0.4.3
+
+# --- Kokoro TTS engine (default engine) ---
+# kokoro-onnx pulls in onnxruntime automatically.
+# misaki[en] provides English phonemization for Kokoro.
+kokoro-onnx==0.5.0
+misaki[en]==0.9.4
 
 # --- AI / ML ---
 # NOTE: torch + torchaudio are installed separately by the
@@ -24,6 +34,7 @@ sounddevice==0.5.5
 python-docx==1.2.0
 reportlab==4.4.10
 pdfplumber==0.11.9
+ebooklib==0.20
 
 # --- Text normalization / audio quality ---
 num2words==0.5.13
@@ -34,10 +45,7 @@ scipy>=1.11.0
 pyspellchecker==0.8.1
 vaderSentiment==3.3.2
 # language-tool-python is no longer used (required Java + public API rate limits)
-# llama-cpp-python is optional (needed for AI tag generation with Qwen 0.5B).
-# Install separately after setup if desired:
-#   pip install llama-cpp-python
-# Pre-built CPU wheels are available — no compiler needed on Windows.
+llama-cpp-python==0.3.20  # AI tag generation / translation via Qwen 0.5B GGUF (pre-built wheel, no CMake)
 
 # --- System ---
 psutil==5.9.8

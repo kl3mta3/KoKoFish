@@ -209,6 +209,14 @@ class KoKoFishUI:
         self._listen_drag_rows:   list = []
         self._listen_preview_pos: int = 0
         self._listen_preview_sr = None
+        self._listen_ffmpeg_proc = None           # subprocess when streaming via ffmpeg
+        self._listen_ffmpeg_path: str = ""        # path of file being streamed via ffmpeg
+        self._listen_sf_handle = None             # SoundFile handle when streaming natively
+        self._listen_is_ffmpeg: bool = False      # True = ffmpeg pipe, False = soundfile
+        self._listen_preview_pos_sec: float = 0.0 # position in seconds (for ffmpeg seeks)
+        self._listen_run_plain_on_done = None     # callback fired when _listen_run_plain finishes
+        self._listen_stream_gen: int = 0  # incremented each stream start; finished callbacks check this to avoid stale resets
+        self._listen_speed_var = tk.DoubleVar(value=1.0)  # playback speed multiplier
 
         self._build_tts_tab()
         self._build_voice_lab_tab()
@@ -1678,11 +1686,21 @@ class KoKoFishUI:
         # Hide controls initially (translate is OFF by default)
         self._listen_tr_controls.pack_forget()
 
-        # ── Drop-zone hint ───────────────────────────────────────────────────
-        ctk.CTkLabel(tab,
-                     text="Drag & drop audio files here  (MP3, WAV, M4A, FLAC, OGG…)",
-                     font=(FONT_FAMILY, 11),
-                     text_color=COLORS["text_muted"]).pack(fill="x", padx=10)
+        # ── Drop-zone hint + Add button ──────────────────────────────────────
+        _hint_row = ctk.CTkFrame(tab, fg_color="transparent")
+        _hint_row.pack(fill="x", padx=10, pady=(2, 0))
+        ctk.CTkButton(
+            _hint_row, text="＋  Add Files", width=110, height=28,
+            corner_radius=7, font=(FONT_FAMILY, 11),
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            command=self._listen_browse_add,
+        ).pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(
+            _hint_row,
+            text="Drag & drop audio files here  (MP3, WAV, M4A, M4B, FLAC, OGG…)",
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["text_muted"],
+        ).pack(side="left")
 
         # ── Scrollable playlist ──────────────────────────────────────────────
         self._listen_scroll = ctk.CTkScrollableFrame(
@@ -1701,6 +1719,18 @@ class KoKoFishUI:
             command=self._listen_play_selected, **_bs)
         self._btn_listen_play.pack(side="left", padx=(10, 4), pady=9)
         self._make_tooltip(self._btn_listen_play, "Play all selected items in sequence")
+
+        _prev_btn = ctk.CTkButton(bot, text="⏮", width=40,
+                      fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                      command=self._listen_prev, **_bs)
+        _prev_btn.pack(side="left", padx=(0, 2), pady=9)
+        self._make_tooltip(_prev_btn, "Previous track")
+
+        _next_btn = ctk.CTkButton(bot, text="⏭", width=40,
+                      fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                      command=self._listen_next, **_bs)
+        _next_btn.pack(side="left", padx=(0, 8), pady=9)
+        self._make_tooltip(_next_btn, "Next track")
 
         _rm_sel = ctk.CTkButton(bot, text="🗑  Remove Selected", width=150,
                       fg_color=COLORS["danger"], hover_color="#d43d62",
@@ -1724,6 +1754,27 @@ class KoKoFishUI:
                                            font=(FONT_FAMILY, 11),
                                            text_color=COLORS["text_secondary"])
         self._listen_status.pack(side="right", padx=(0, 12))
+
+        # Speed control
+        _spd_frame = ctk.CTkFrame(bot, fg_color="transparent")
+        _spd_frame.pack(side="right", padx=(0, 4))
+        ctk.CTkLabel(_spd_frame, text="Speed",
+                     font=(FONT_FAMILY, 10), text_color=COLORS["text_muted"],
+                     width=38).pack(side="left")
+        self._listen_speed_label = ctk.CTkLabel(_spd_frame, text="1.0×",
+                     font=(FONT_FAMILY, 10), text_color=COLORS["text_secondary"],
+                     width=34)
+        self._listen_speed_label.pack(side="right")
+        ctk.CTkSlider(
+            _spd_frame,
+            from_=0.5, to=2.0,
+            variable=self._listen_speed_var,
+            width=100, height=16,
+            progress_color=COLORS["accent"],
+            button_color=COLORS["accent_light"],
+            button_hover_color=COLORS["accent"],
+            command=self._listen_speed_changed,
+        ).pack(side="left", padx=4)
 
         # Volume control
         _vol_frame = ctk.CTkFrame(bot, fg_color="transparent")
@@ -1757,6 +1808,7 @@ class KoKoFishUI:
             pass
 
         self._rebuild_listen_ui()
+        self._listen_update_playhead()
 
     # ------------------------------------------------------------------
     # Listen Lab — drag-to-reorder
@@ -1811,17 +1863,46 @@ class KoKoFishUI:
         else:
             self._listen_tr_controls.pack_forget()
 
-    def _listen_on_drop(self, event):
-        _AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".wma"}
-        paths = self._parse_drop_data(event.data)
+    def _listen_browse_add(self):
+        """Open file dialog to add audio files to the Listen Lab playlist."""
+        paths = filedialog.askopenfilenames(
+            title="Add Audio Files",
+            filetypes=[
+                ("Audio files", "*.mp3 *.wav *.m4a *.m4b *.flac *.ogg *.opus *.aac *.wma *.weba *.webm *.amr"),
+                ("All files", "*.*"),
+            ],
+            parent=self.root,
+        )
         added = 0
         for p in paths:
-            if os.path.splitext(p)[1].lower() in _AUDIO_EXTS:
+            if os.path.isfile(p):
                 self._listen_items.append({"path": p, "name": os.path.basename(p), "selected": False})
                 added += 1
         if added:
             self._rebuild_listen_ui()
             self._listen_status.configure(text=f"Added {added} file(s)")
+
+    def _listen_on_drop(self, event):
+        _AUDIO_EXTS = {
+            ".mp3", ".wav", ".m4a", ".m4b", ".flac", ".ogg",
+            ".opus", ".aac", ".wma", ".weba", ".webm", ".amr",
+        }
+        paths = self._parse_drop_data(event.data)
+        added = 0
+        for p in paths:
+            ext = os.path.splitext(p)[1].lower()
+            # Accept known audio extensions OR any file (let ffmpeg decide)
+            if ext in _AUDIO_EXTS or ext == "":
+                self._listen_items.append({"path": p, "name": os.path.basename(p), "selected": False})
+                added += 1
+                logger.info("Listen Lab: added %s", p)
+            else:
+                logger.warning("Listen Lab: skipped drop (unknown ext %s): %s", ext, p)
+        if added:
+            self._rebuild_listen_ui()
+            self._listen_status.configure(text=f"Added {added} file(s)")
+        elif paths:
+            self._listen_status.configure(text="No supported audio files found in drop")
 
     def _rebuild_listen_ui(self):
         for w in self._listen_scroll.winfo_children():
@@ -1848,7 +1929,8 @@ class KoKoFishUI:
             is_playing = (idx == self._listen_preview_idx and not self._listen_preview_paused)
             is_paused_play = (idx == self._listen_preview_idx and self._listen_preview_paused)
 
-            row_color = COLORS["bg_input"] if item["selected"] else COLORS["bg_card"]
+            _stripe = "#1a1a2e" if idx % 2 == 0 else "#16162a"
+            row_color = COLORS["bg_input"] if item["selected"] else _stripe
             row = ctk.CTkFrame(self._listen_scroll, fg_color=row_color, corner_radius=7)
             row.pack(fill="x", padx=4, pady=2)
             self._listen_drag_rows.append(row)
@@ -1928,7 +2010,23 @@ class KoKoFishUI:
                 _sb.pack(side="right", padx=(0, 2))
                 self._make_tooltip(_sb, "Save translated audio")
 
-                # Play/Pause ▶/⏸
+                # Transport strip packed right-to-left: ✕ … [⏮][⏪][▶/⏸][⏩][⏭] … ⓘ
+                # ⏭ next chapter (always visible) — rightmost of strip
+                _nxt = ctk.CTkButton(top, text="⏭",
+                                     fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                     border_color=COLORS["border"], border_width=1,
+                                     command=self._listen_next, **_ib)
+                _nxt.pack(side="right", padx=(0, 2))
+                self._make_tooltip(_nxt, "Next chapter")
+                # ⏩ forward 30 s (only when active)
+                if is_playing or is_paused_play:
+                    _fwd = ctk.CTkButton(top, text="⏩",
+                                         fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                         border_color=COLORS["border"], border_width=1,
+                                         command=lambda: self._listen_seek(30), **_ib)
+                    _fwd.pack(side="right", padx=(0, 2))
+                    self._make_tooltip(_fwd, "Skip forward 30 seconds")
+                # ▶/⏸ — centre of strip
                 _pp = ctk.CTkButton(
                     top,
                     text="⏸" if is_playing else "▶",
@@ -1938,6 +2036,21 @@ class KoKoFishUI:
                     command=lambda i=idx: self._listen_toggle_play(i), **_ib)
                 _pp.pack(side="right", padx=(0, 2))
                 self._make_tooltip(_pp, "Pause" if is_playing else "Play translated audio")
+                # ⏪ rewind 30 s (only when active)
+                if is_playing or is_paused_play:
+                    _rwd = ctk.CTkButton(top, text="⏪",
+                                         fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                         border_color=COLORS["border"], border_width=1,
+                                         command=lambda: self._listen_seek(-30), **_ib)
+                    _rwd.pack(side="right", padx=(0, 2))
+                    self._make_tooltip(_rwd, "Rewind 30 seconds")
+                # ⏮ previous chapter — leftmost of strip
+                _prv = ctk.CTkButton(top, text="⏮",
+                                     fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                     border_color=COLORS["border"], border_width=1,
+                                     command=self._listen_prev, **_ib)
+                _prv.pack(side="right", padx=(0, 2))
+                self._make_tooltip(_prv, "Previous chapter")
 
             else:
                 # Normal: metadata ⓘ on original file
@@ -1949,7 +2062,23 @@ class KoKoFishUI:
                 _mb.pack(side="right", padx=(0, 2))
                 self._make_tooltip(_mb, "Edit audio metadata")
 
-                # Play ▶/⏸
+                # Transport strip packed right-to-left: ✕ … [⏮][⏪][▶/⏸][⏩][⏭] … ⓘ
+                # ⏭ next chapter (always visible) — rightmost of strip
+                _nxt = ctk.CTkButton(top, text="⏭",
+                                     fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                     border_color=COLORS["border"], border_width=1,
+                                     command=self._listen_next, **_ib)
+                _nxt.pack(side="right", padx=(0, 2))
+                self._make_tooltip(_nxt, "Next chapter")
+                # ⏩ forward 30 s (only when active)
+                if is_playing or is_paused_play:
+                    _fwd = ctk.CTkButton(top, text="⏩",
+                                         fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                         border_color=COLORS["border"], border_width=1,
+                                         command=lambda: self._listen_seek(30), **_ib)
+                    _fwd.pack(side="right", padx=(0, 2))
+                    self._make_tooltip(_fwd, "Skip forward 30 seconds")
+                # ▶/⏸ — centre of strip
                 _pp = ctk.CTkButton(
                     top,
                     text="⏸" if is_playing else "▶",
@@ -1959,6 +2088,21 @@ class KoKoFishUI:
                     command=lambda i=idx: self._listen_toggle_play(i), **_ib)
                 _pp.pack(side="right", padx=(0, 2))
                 self._make_tooltip(_pp, "Pause" if is_playing else "Play audio")
+                # ⏪ rewind 30 s (only when active)
+                if is_playing or is_paused_play:
+                    _rwd = ctk.CTkButton(top, text="⏪",
+                                         fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                         border_color=COLORS["border"], border_width=1,
+                                         command=lambda: self._listen_seek(-30), **_ib)
+                    _rwd.pack(side="right", padx=(0, 2))
+                    self._make_tooltip(_rwd, "Rewind 30 seconds")
+                # ⏮ previous chapter — leftmost of strip
+                _prv = ctk.CTkButton(top, text="⏮",
+                                     fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+                                     border_color=COLORS["border"], border_width=1,
+                                     command=self._listen_prev, **_ib)
+                _prv.pack(side="right", padx=(0, 2))
+                self._make_tooltip(_prv, "Previous chapter")
 
             # Name / status label
             if is_active:
@@ -1982,6 +2126,56 @@ class KoKoFishUI:
                              font=(FONT_FAMILY, 12),
                              text_color=COLORS["success"] if is_done else COLORS["text_primary"],
                              anchor="w").pack(side="left", fill="x", expand=True, padx=4)
+
+            # ── Waveform + playhead ───────────────────────────────────────
+            waveform = item.get("waveform")
+            duration  = item.get("duration_sec", 0)
+            if waveform and duration > 0:
+                wf_frame = ctk.CTkFrame(row, fg_color="transparent", height=36)
+                wf_frame.pack(fill="x", padx=8, pady=(0, 4))
+                wf_frame.pack_propagate(False)
+                wf_canvas = tk.Canvas(
+                    wf_frame, height=36, bg="#0f0f1a",
+                    highlightthickness=0, bd=0,
+                )
+                wf_canvas.pack(fill="both", expand=True)
+                item["_waveform_canvas"] = wf_canvas
+                item["_waveform_data"]   = waveform
+                item["_waveform_dur"]    = duration
+
+                def _draw_waveform(c=wf_canvas, wf=waveform, it=item, i=idx):
+                    c.update_idletasks()
+                    w = c.winfo_width()
+                    h = c.winfo_height()
+                    if w < 2 or h < 2:
+                        return
+                    c.delete("all")
+                    n = len(wf)
+                    if n == 0:
+                        return
+                    mid = h // 2
+                    peak = max(wf) or 1.0
+                    bar_w = max(1, w / n)
+                    for k, amp in enumerate(wf):
+                        x = k * bar_w
+                        bar_h = int((amp / peak) * mid * 0.9)
+                        x0, x1 = int(x), max(int(x + bar_w) - 1, int(x) + 1)
+                        c.create_rectangle(x0, mid - bar_h, x1, mid + bar_h,
+                                           fill="#3a5f8a", outline="", tags="wave")
+                    # Playhead
+                    dur = it.get("duration_sec", 0)
+                    pos = it.get("_playhead_sec", 0.0)
+                    if dur > 0:
+                        px = int((pos / dur) * w)
+                        c.create_line(px, 0, px, h, fill="white", width=2, tags="playhead")
+
+                wf_canvas.bind("<Configure>", lambda e, d=_draw_waveform: d())
+                wf_canvas.after(50, _draw_waveform)
+            else:
+                item["_waveform_canvas"] = None
+                if not item.get("waveform") and not item.get("_wf_computing"):
+                    item["_wf_computing"] = True
+                    self._listen_compute_waveform(idx, item["path"])
 
             # ── Progress bar (only during TTS conversion) ─────────────────
             if tl_status == "converting":
@@ -2016,14 +2210,11 @@ class KoKoFishUI:
         if translate_on:
             tl_status = item.get("tl_status")
             if tl_status == "done" and item.get("tl_path") and os.path.isfile(item["tl_path"]):
-                # Already translated — play/pause the translated audio
                 pass  # fall through to normal play with tl_path
             elif tl_status in ("transcribing", "translating", "converting"):
-                # Toggle pause (only meaningful in converting state)
                 self._listen_pause_pipeline(idx)
                 return
             else:
-                # Not started / error → start pipeline
                 self._listen_run_pipeline(idx)
                 return
 
@@ -2033,65 +2224,288 @@ class KoKoFishUI:
             messagebox.showwarning("Listen Lab", f"File not found:\n{play_path}", parent=self.root)
             return
 
-        # Toggle pause if same item
+        # ── Same item tapped: toggle pause ────────────────────────────────
         if self._listen_preview_idx == idx:
-            self._listen_preview_paused = not self._listen_preview_paused
-            self._rebuild_listen_ui()
+            if self._listen_is_ffmpeg:
+                # ffmpeg streaming: pause = stop + remember position; resume = restart
+                if self._listen_preview_paused:
+                    # Resume — restart ffmpeg from saved position
+                    resume_sec = self._listen_preview_pos_sec
+                    self._listen_preview_paused = False
+                    self._rebuild_listen_ui()
+                    self._listen_start_stream(idx, play_path, start_sec=resume_sec)
+                else:
+                    # Pause — save position and kill ffmpeg
+                    self._listen_preview_pos_sec = self._listen_preview_pos / (self._listen_preview_sr or 44100)
+                    self._listen_preview_paused = True
+                    self._listen_kill_ffmpeg()
+                    if self._listen_preview_stream:
+                        try:
+                            self._listen_preview_stream.stop()
+                            self._listen_preview_stream.close()
+                        except Exception:
+                            pass
+                        self._listen_preview_stream = None
+                    self._rebuild_listen_ui()
+            else:
+                # soundfile streaming: simple callback-level pause
+                self._listen_preview_paused = not self._listen_preview_paused
+                self._rebuild_listen_ui()
             return
 
-        # Stop previous
+        # ── New item: stop previous and start fresh ───────────────────────
         self._listen_stop_preview()
+        self._listen_start_stream(idx, play_path, start_sec=0.0)
 
-        try:
-            data, sr = _sf.read(play_path, dtype="float32")
-        except Exception as exc:
-            messagebox.showerror("Listen Lab", f"Cannot read audio:\n{exc}", parent=self.root)
-            return
+    def _listen_start_stream(self, idx: int, path: str, start_sec: float = 0.0):
+        """Start streaming playback of *path* beginning at *start_sec* seconds."""
+        import sounddevice as _sd
+        import soundfile as _sf
 
-        if data.ndim > 1:
-            data = data[:, 0]
-
-        self._listen_preview_audio = data
-        self._listen_preview_sr = sr
-        self._listen_preview_pos = 0
         self._listen_preview_idx = idx
         self._listen_preview_paused = False
-        self._rebuild_listen_ui()
+        self._listen_preview_pos = 0
+        self._listen_preview_pos_sec = start_sec
+        self._listen_stream_gen += 1
 
-        def _cb(outdata, frames, time_info, status):
-            if self._listen_preview_paused:
-                outdata[:] = 0
+        # ── Determine whether soundfile can open this format ──────────────
+        _sf_ok = False
+        try:
+            with _sf.SoundFile(path) as _t:
+                _sr = _t.samplerate
+            _sf_ok = True
+        except Exception:
+            pass
+
+        if _sf_ok:
+            # ── Native streaming via soundfile (WAV, FLAC, OGG, AIFF…) ───
+            self._listen_is_ffmpeg = False
+            sf_handle = _sf.SoundFile(path)
+            sr = sf_handle.samplerate
+            if start_sec > 0:
+                sf_handle.seek(int(start_sec * sr))
+            self._listen_sf_handle = sf_handle
+            self._listen_preview_sr = sr
+            self._listen_preview_pos = sf_handle.tell()
+            self._rebuild_listen_ui()
+
+            def _cb(outdata, frames, time_info, status):
+                if self._listen_preview_paused:
+                    outdata[:] = 0
+                    return
+                vol = self._listen_vol_var.get() / 100.0
+                data = sf_handle.read(frames, dtype="float32", always_2d=True)
+                n = len(data)
+                if n == 0:
+                    outdata[:] = 0
+                    raise _sd.CallbackStop()
+                chunk = (data[:, 0] if data.ndim > 1 else data.ravel()) * vol
+                outdata[:n, 0] = chunk
+                if n < frames:
+                    outdata[n:] = 0
+                _spd = round(float(self._listen_speed_var.get()), 2)
+                if abs(_spd - 1.0) > 0.02 and n > 0:
+                    # crude speed: advance position by speed factor
+                    extra = int(n * (_spd - 1.0))
+                    if extra > 0:
+                        sf_handle.seek(min(sf_handle.tell() + extra, sf_handle.frames - 1))
+                    elif extra < 0:
+                        sf_handle.seek(max(sf_handle.tell() + extra, 0))
+                self._listen_preview_pos = sf_handle.tell()
+                self._listen_preview_pos_sec = self._listen_preview_pos / sr
+
+            _my_gen_sf = self._listen_stream_gen
+
+            def _finished_sf():
+                try:
+                    sf_handle.close()
+                except Exception:
+                    pass
+                self._listen_sf_handle = None
+                self._listen_preview_stream = None
+                # If paused intentionally or a newer stream has started, don't reset state
+                if self._listen_preview_paused or self._listen_stream_gen != _my_gen_sf:
+                    self.root.after(0, self._rebuild_listen_ui)
+                    return
+                self._listen_preview_idx = -1
+                self.root.after(0, self._rebuild_listen_ui)
+                _cb_done = getattr(self, "_listen_run_plain_on_done", None)
+                self._listen_run_plain_on_done = None
+                if _cb_done:
+                    self.root.after(50, _cb_done)
+                elif getattr(self, "_listen_queue", []):
+                    self.root.after(50, self._listen_play_next)
+
+            stream = _sd.OutputStream(
+                samplerate=sr, channels=1, dtype="float32",
+                callback=_cb, finished_callback=_finished_sf,
+            )
+            self._listen_preview_stream = stream
+            stream.start()
+
+        else:
+            # ── ffmpeg pipe streaming (M4A, MP3, AAC, WMA, OPUS…) ─────────
+            self._listen_is_ffmpeg = True
+            self._listen_ffmpeg_path = path
+            SR = 44100
+            self._listen_preview_sr = SR
+            self._listen_preview_pos = int(start_sec * SR)
+
+            # Locate ffmpeg (bundled first, then PATH)
+            _app_dir = os.path.dirname(os.path.abspath(__file__))
+            _ffmpeg = os.path.join(_app_dir, "bin", "ffmpeg.exe")
+            if not os.path.isfile(_ffmpeg):
+                import shutil as _sh
+                _ffmpeg = _sh.which("ffmpeg") or "ffmpeg"
+
+            _speed = round(float(self._listen_speed_var.get()), 2)
+            cmd = [_ffmpeg]
+            if start_sec > 0:
+                cmd += ["-ss", f"{start_sec:.3f}"]
+            cmd += ["-i", path]
+            if abs(_speed - 1.0) > 0.02:
+                # clamp atempo to 0.5–2.0 range
+                _tempo = max(0.5, min(2.0, _speed))
+                cmd += ["-filter:a", f"atempo={_tempo:.2f}"]
+            cmd += ["-f", "s16le", "-ac", "1", "-ar", str(SR), "pipe:1"]
+
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except Exception as exc:
+                messagebox.showerror("Listen Lab", f"Cannot start ffmpeg:\n{exc}", parent=self.root)
+                self._listen_preview_idx = -1
                 return
-            vol = self._listen_vol_var.get() / 100.0
-            remaining = len(self._listen_preview_audio) - self._listen_preview_pos
-            if remaining <= 0:
-                outdata[:] = 0
-                raise _sd.CallbackStop()
-            take = min(frames, remaining)
-            chunk = (self._listen_preview_audio[
-                self._listen_preview_pos:self._listen_preview_pos + take
-            ] * vol).astype(np.float32)
-            outdata[:take, 0] = chunk
-            if take < frames:
-                outdata[take:] = 0
-            self._listen_preview_pos += take
 
-        def _finished():
-            self._listen_preview_idx = -1
-            self._listen_preview_paused = False
-            self._listen_preview_stream = None
-            self.root.after(0, self._rebuild_listen_ui)
-            # Auto-advance queue if one is running
-            if getattr(self, "_listen_queue", []):
-                self.root.after(50, self._listen_play_next)
+            self._listen_ffmpeg_proc = proc
+            self._rebuild_listen_ui()
 
-        stream = _sd.OutputStream(
-            samplerate=sr, channels=1,
-            dtype="float32", callback=_cb,
-            finished_callback=_finished,
-        )
-        self._listen_preview_stream = stream
-        stream.start()
+            def _cb_ff(outdata, frames, time_info, status):
+                if self._listen_preview_paused:
+                    outdata[:] = 0
+                    return
+                vol = self._listen_vol_var.get() / 100.0
+                raw = proc.stdout.read(frames * 2)  # s16le = 2 bytes/sample
+                if not raw:
+                    outdata[:] = 0
+                    raise _sd.CallbackStop()
+                samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                n = len(samples)
+                if n < frames:
+                    outdata[:n, 0] = samples * vol
+                    outdata[n:] = 0
+                else:
+                    outdata[:, 0] = samples[:frames] * vol
+                self._listen_preview_pos += n
+                self._listen_preview_pos_sec = self._listen_preview_pos / SR
+
+            _my_gen_ff = self._listen_stream_gen
+
+            def _finished_ff():
+                self._listen_kill_ffmpeg()
+                self._listen_preview_stream = None
+                # If paused intentionally or a newer stream has started, don't reset state
+                if self._listen_preview_paused or self._listen_stream_gen != _my_gen_ff:
+                    self.root.after(0, self._rebuild_listen_ui)
+                    return
+                self._listen_preview_idx = -1
+                self.root.after(0, self._rebuild_listen_ui)
+                _cb_done = getattr(self, "_listen_run_plain_on_done", None)
+                self._listen_run_plain_on_done = None
+                if _cb_done:
+                    self.root.after(50, _cb_done)
+                elif getattr(self, "_listen_queue", []):
+                    self.root.after(50, self._listen_play_next)
+
+            stream = _sd.OutputStream(
+                samplerate=SR, channels=1, dtype="float32",
+                callback=_cb_ff, finished_callback=_finished_ff,
+            )
+            self._listen_preview_stream = stream
+            stream.start()
+
+    def _listen_kill_ffmpeg(self):
+        """Kill the ffmpeg subprocess if one is running."""
+        proc = getattr(self, "_listen_ffmpeg_proc", None)
+        if proc:
+            try:
+                proc.kill()
+                proc.wait(timeout=2)
+            except Exception:
+                pass
+            self._listen_ffmpeg_proc = None
+
+    def _listen_compute_waveform(self, idx: int, path: str):
+        """Compute a downsampled waveform for the given item in a background thread."""
+        def _worker():
+            try:
+                _app_dir = os.path.dirname(os.path.abspath(__file__))
+                _ffmpeg = os.path.join(_app_dir, "bin", "ffmpeg.exe")
+                if not os.path.isfile(_ffmpeg):
+                    import shutil as _sh
+                    _ffmpeg = _sh.which("ffmpeg") or "ffmpeg"
+
+                proc = subprocess.Popen(
+                    [_ffmpeg, "-i", path, "-f", "s16le", "-ac", "1", "-ar", "4000", "pipe:1"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                raw = proc.stdout.read()
+                proc.wait()
+                if not raw:
+                    return
+
+                samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                n_blocks = 300
+                block_size = max(1, len(samples) // n_blocks)
+                waveform = []
+                for i in range(0, len(samples) - block_size + 1, block_size):
+                    block = samples[i:i + block_size]
+                    waveform.append(float(np.sqrt(np.mean(block ** 2))))
+
+                duration_sec = len(samples) / 4000.0
+
+                if 0 <= idx < len(self._listen_items):
+                    self._listen_items[idx]["waveform"] = waveform
+                    self._listen_items[idx]["duration_sec"] = duration_sec
+                    self.root.after(0, self._rebuild_listen_ui)
+            except Exception as exc:
+                logger.debug("Waveform compute failed for %s: %s", path, exc)
+
+        threading.Thread(target=_worker, daemon=True, name=f"WaveformCompute-{idx}").start()
+
+    def _listen_update_playhead(self):
+        """Periodic timer — updates the waveform playhead without rebuilding the full UI."""
+        try:
+            if self._listen_preview_idx >= 0:
+                idx = self._listen_preview_idx
+                if 0 <= idx < len(self._listen_items):
+                    item = self._listen_items[idx]
+                    dur = item.get("duration_sec", 0)
+                    canvas = item.get("_waveform_canvas")
+                    if canvas and dur > 0:
+                        try:
+                            if not canvas.winfo_exists():
+                                raise RuntimeError("gone")
+                            pos = self._listen_preview_pos_sec
+                            item["_playhead_sec"] = pos
+                            w = canvas.winfo_width()
+                            h = canvas.winfo_height()
+                            if w > 1 and h > 1:
+                                px = int(min(1.0, pos / dur) * w)
+                                canvas.delete("playhead")
+                                canvas.create_line(px, 0, px, h,
+                                                   fill="white", width=2, tags="playhead")
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        self.root.after(500, self._listen_update_playhead)
 
     def _listen_stop_preview(self):
         if self._listen_preview_stream:
@@ -2101,8 +2515,88 @@ class KoKoFishUI:
             except Exception:
                 pass
             self._listen_preview_stream = None
+        self._listen_kill_ffmpeg()
+        sf_h = getattr(self, "_listen_sf_handle", None)
+        if sf_h:
+            try:
+                sf_h.close()
+            except Exception:
+                pass
+            self._listen_sf_handle = None
         self._listen_preview_idx = -1
         self._listen_preview_paused = False
+        self._listen_is_ffmpeg = False
+
+    def _listen_seek(self, seconds: float):
+        """Seek forward (positive) or backward (negative) in the currently playing audio."""
+        if self._listen_preview_idx < 0:
+            return
+        if self._listen_is_ffmpeg:
+            # ffmpeg: stop and restart at new position
+            idx = self._listen_preview_idx
+            path = self._listen_ffmpeg_path
+            new_sec = max(0.0, self._listen_preview_pos_sec + seconds)
+            was_paused = self._listen_preview_paused
+            self._listen_stop_preview()
+            self._listen_preview_idx = idx  # restore so UI shows correctly
+            if not was_paused:
+                self.root.after(50, lambda: self._listen_start_stream(idx, path, start_sec=new_sec))
+            else:
+                # Paused: update position without restarting
+                self._listen_preview_pos_sec = new_sec
+                self._listen_preview_paused = True
+                self._listen_preview_idx = idx
+                self._rebuild_listen_ui()
+        else:
+            # soundfile: seek directly on the open file handle
+            sf_h = getattr(self, "_listen_sf_handle", None)
+            if sf_h and self._listen_preview_sr:
+                delta = int(seconds * self._listen_preview_sr)
+                new_pos = max(0, self._listen_preview_pos + delta)
+                try:
+                    sf_h.seek(new_pos)
+                    self._listen_preview_pos = sf_h.tell()
+                    self._listen_preview_pos_sec = self._listen_preview_pos / self._listen_preview_sr
+                except Exception:
+                    pass
+
+    def _listen_prev(self):
+        """Stop current playback and play the previous item."""
+        prev_idx = self._listen_preview_idx - 1
+        if prev_idx < 0:
+            prev_idx = 0
+        self._listen_stop_preview()
+        self.root.after(50, lambda: self._listen_toggle_play(prev_idx))
+        self._rebuild_listen_ui()
+
+    def _listen_next(self):
+        """Stop current playback and play the next item."""
+        next_idx = self._listen_preview_idx + 1
+        if next_idx >= len(self._listen_items):
+            return
+        self._listen_stop_preview()
+        self.root.after(50, lambda: self._listen_toggle_play(next_idx))
+        self._rebuild_listen_ui()
+
+    def _listen_speed_changed(self, value):
+        """Called when the speed slider moves. Updates label and restarts stream if playing."""
+        speed = round(float(value), 2)
+        # Snap to 1.0 when close
+        if abs(speed - 1.0) < 0.05:
+            speed = 1.0
+            self._listen_speed_var.set(1.0)
+        lbl = getattr(self, "_listen_speed_label", None)
+        if lbl:
+            lbl.configure(text=f"{speed:.1f}×")
+        # Restart stream at current position with new speed if something is playing
+        if self._listen_preview_idx >= 0 and not self._listen_preview_paused:
+            idx = self._listen_preview_idx
+            path = (self._listen_ffmpeg_path if self._listen_is_ffmpeg
+                    else self._listen_items[idx]["path"] if 0 <= idx < len(self._listen_items) else None)
+            if path and os.path.isfile(path):
+                pos_sec = self._listen_preview_pos_sec
+                self._listen_stop_preview()
+                self.root.after(80, lambda: self._listen_start_stream(idx, path, start_sec=pos_sec))
 
     def _listen_play_selected(self):
         """Play/pipeline all selected items in sequence."""
@@ -2152,11 +2646,15 @@ class KoKoFishUI:
     # ── Listen Lab plain playback helper ──────────────────────────────
 
     def _listen_run_plain(self, idx: int, on_done=None):
-        """Play a single item (original or translated) without pipeline."""
-        import sounddevice as _sd
-        import soundfile as _sf
+        """Play a single item (original or translated) without pipeline.
 
+        Delegates to _listen_start_stream so all formats (M4A, MP3, WAV…)
+        and all file sizes work without loading into memory.
+        on_done() is called via _listen_queue auto-advance when the track ends.
+        """
         if idx < 0 or idx >= len(self._listen_items):
+            if on_done:
+                on_done()
             return
         item = self._listen_items[idx]
         play_path = item.get("tl_path") if item.get("tl_status") == "done" else item["path"]
@@ -2166,52 +2664,9 @@ class KoKoFishUI:
             return
 
         self._listen_stop_preview()
-        try:
-            data, sr = _sf.read(play_path, dtype="float32")
-        except Exception:
-            if on_done:
-                on_done()
-            return
-        if data.ndim > 1:
-            data = data[:, 0]
-
-        self._listen_preview_audio = data
-        self._listen_preview_sr = sr
-        self._listen_preview_pos = 0
-        self._listen_preview_idx = idx
-        self._listen_preview_paused = False
-        self._rebuild_listen_ui()
-
-        def _cb(outdata, frames, _t, _st):
-            if self._listen_preview_paused:
-                outdata[:] = 0
-                return
-            vol = (self.vol_slider.get() / 100.0) if hasattr(self, "vol_slider") else 1.0
-            remaining = len(self._listen_preview_audio) - self._listen_preview_pos
-            if remaining <= 0:
-                outdata[:] = 0
-                raise _sd.CallbackStop()
-            take = min(frames, remaining)
-            out = (self._listen_preview_audio[
-                self._listen_preview_pos:self._listen_preview_pos + take
-            ] * vol).astype(np.float32)
-            outdata[:take, 0] = out
-            if take < frames:
-                outdata[take:] = 0
-            self._listen_preview_pos += take
-
-        def _finished():
-            self._listen_preview_stream = None
-            self._listen_preview_idx = -1
-            self._listen_preview_paused = False
-            self.root.after(0, self._rebuild_listen_ui)
-            if on_done:
-                self.root.after(50, on_done)
-
-        stream = _sd.OutputStream(samplerate=sr, channels=1, dtype="float32",
-                                  callback=_cb, finished_callback=_finished)
-        self._listen_preview_stream = stream
-        stream.start()
+        # Store on_done so _listen_play_next can chain it after playback ends
+        self._listen_run_plain_on_done = on_done
+        self._listen_start_stream(idx, play_path, start_sec=0.0)
 
     # ── Listen Lab translate pipeline ─────────────────────────────────
 
@@ -4511,12 +4966,16 @@ class KoKoFishUI:
         win.geometry("780x820")
         win.configure(fg_color=COLORS["bg_dark"])
         win.resizable(True, True)
+        win.transient(self.root)   # keep it on top of the main window
 
         # Center over main window
         self.root.update_idletasks()
         rx = self.root.winfo_x() + (self.root.winfo_width() - 780) // 2
         ry = self.root.winfo_y() + (self.root.winfo_height() - 820) // 2
         win.geometry(f"+{rx}+{ry}")
+
+        # Bring to front — after() gives Tk time to fully map the window first
+        win.after(50, lambda: (win.lift(), win.focus_force()) if win.winfo_exists() else None)
 
         self._settings_window = win
         def _on_settings_close():

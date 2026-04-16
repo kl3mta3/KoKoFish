@@ -14,6 +14,10 @@ import time
 # cudaMallocAsync (available since CUDA 11.4) as a safer cross-version option.
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "backend:cudaMallocAsync")
 
+# Prevent huggingface_hub from storing/reading tokens via Windows Credential
+# Manager (keyring). The HF token is stored in settings.json instead.
+os.environ["HF_HUB_DISABLE_CREDENTIAL_STORAGE"] = "1"
+
 # ---------------------------------------------------------------------------
 # Logging setup — do this first before any other imports
 # ---------------------------------------------------------------------------
