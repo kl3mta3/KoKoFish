@@ -22,7 +22,14 @@ _NO_WIN = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 import customtkinter as ctk
 import numpy as np
 
-from settings import Settings, detect_cuda, get_bundled_fish_speech_path, validate_fish_speech_path
+from settings import (
+    Settings,
+    detect_cuda,
+    VALID_ENGINES,
+    ENGINE_LABELS,
+    engine_label,
+    engine_id_from_label,
+)
 from cuda_setup import has_nvidia_gpu, get_nvidia_gpu_name, is_cuda_torch_installed, install_cuda_pytorch, revert_to_cpu_pytorch
 from kokoro_engine import KOKORO_VOICES, DEFAULT_VOICE, DEFAULT_VOICE_DISPLAY, install_kokoro, _is_kokoro_installed, KOKORO_LANGUAGE_GROUPS, KOKORO_DEFAULT_LANG, KOKORO_VOICE_LANG
 from utils import (
@@ -330,7 +337,7 @@ class KoKoFishUI:
         self._build_prompt_lab_tab()
 
         # Lock Voice Lab tab when Kokoro engine is active
-        if getattr(self.settings, 'engine', 'fish14') == 'kokoro':
+        if getattr(self.settings, 'engine', 'kokoro') == 'kokoro':
             self._lock_voice_lab()
 
         # Bind tab change for memory saver
@@ -522,7 +529,7 @@ class KoKoFishUI:
         controls.pack(fill="x", padx=10, pady=5)
 
         # --- Kokoro language filter (American / British) ---
-        is_kokoro = getattr(self.settings, 'engine', 'fish14') == 'kokoro'
+        is_kokoro = getattr(self.settings, 'engine', 'kokoro') == 'kokoro'
         self._kokoro_lang_var = ctk.StringVar(value=KOKORO_DEFAULT_LANG)
 
         # --- Voice variable (hidden — each playlist item has its own voice dropdown) ---
@@ -1856,8 +1863,12 @@ class KoKoFishUI:
         voice_col = ctk.CTkFrame(self._listen_tr_controls, fg_color="transparent")
         voice_col.pack(side="left", padx=(0, 16))
         ctk.CTkLabel(voice_col, text=t("LISTEN_LAB_TTS_VOICE_LABEL"), **_lf).pack(anchor="w")
-        from voice_manager import VoiceManager
-        _voice_names = self.voices.get_voice_names() if hasattr(self, "voices") else ["Default (Random)"]
+        _engine = getattr(self.settings, "engine", "kokoro")
+        if _engine == "kokoro":
+            from kokoro_engine import KOKORO_VOICES
+            _voice_names = list(KOKORO_VOICES.keys())
+        else:
+            _voice_names = self.voices.get_voice_names() if hasattr(self, "voices") else ["Default (Random)"]
         self._listen_voice_menu = ctk.CTkOptionMenu(
             voice_col, variable=self._listen_translate_voice_var,
             values=_voice_names, width=200, **_ef)
@@ -2901,7 +2912,7 @@ class KoKoFishUI:
         src_path = item["path"]
         lang     = _en_from_display(_LANG_KEY_MAP, self._listen_translate_lang_var.get())
         voice_name = self._listen_translate_voice_var.get()
-        engine   = getattr(self.settings, "engine", "fish14")
+        engine   = getattr(self.settings, "engine", "kokoro")
 
         def _cancelled():
             return item.get("tl_cancel", False)
@@ -3205,90 +3216,206 @@ class KoKoFishUI:
             justify="left",
         ).pack(anchor="w", padx=15, pady=(0, 6))
 
-        # Generation quality settings
-        gen_frame = ctk.CTkFrame(tab, fg_color=COLORS["bg_card"], corner_radius=8)
-        gen_frame.pack(fill="x", padx=15, pady=(0, 10))
-
-        ctk.CTkLabel(
-            gen_frame,
-            text=t("SPEECH_LAB_GEN_SETTINGS_HEADER"),
-            font=(FONT_FAMILY, 11, "bold"),
-            text_color=COLORS["text_secondary"],
-        ).pack(anchor="w", padx=12, pady=(8, 4))
-
-        sliders_row = ctk.CTkFrame(gen_frame, fg_color="transparent")
-        sliders_row.pack(fill="x", padx=12, pady=(0, 10))
-
-        # Map setting key → engine attribute name
-        _engine_attr = {
-            "tts_temperature": "temperature",
-            "tts_top_p": "top_p",
-            "tts_repetition_penalty": "repetition_penalty",
-            "tts_chunk_length": "chunk_length",
-        }
-
-        def _make_gen_slider(parent, label, from_, to, initial, resolution, setting_key,
-                             fmt="{:.2f}", tooltip=""):
-            col = ctk.CTkFrame(parent, fg_color="transparent")
-            col.pack(side="left", expand=True, fill="x", padx=(0, 16))
-            lbl = ctk.CTkLabel(
-                col,
-                text=f"{label}: {fmt.format(initial)}",
-                font=(FONT_FAMILY, 11),
-                text_color=COLORS["text_secondary"],
-            )
-            lbl.pack(anchor="w")
-            def _on_change(v, _sk=setting_key):
-                val = round(float(v) / resolution) * resolution
-                lbl.configure(text=f"{label}: {fmt.format(val)}")
-                setattr(self.settings, _sk, val)
-                self.settings.save()
-                # Push live to engine so it takes effect on next generation
-                attr = _engine_attr.get(_sk)
-                if attr and self.tts and hasattr(self.tts, attr):
-                    setattr(self.tts, attr, val)
-            sl = ctk.CTkSlider(
-                col,
-                from_=from_, to=to,
-                number_of_steps=round((to - from_) / resolution),
-                command=_on_change,
-                progress_color=COLORS["accent"],
-                button_color=COLORS["accent_light"],
-                height=16,
-            )
-            sl.set(initial)
-            sl.pack(fill="x", pady=(2, 0))
-            if tooltip:
-                self._make_tooltip(lbl, tooltip)
-                self._make_tooltip(sl, tooltip)
-            return sl
-
-        _make_gen_slider(sliders_row, "Temperature", 0.1, 1.0,
-                         getattr(self.settings, "tts_temperature", 0.7), 0.05, "tts_temperature",
-                         tooltip="Randomness of generation — lower = more consistent/monotone, higher = more expressive/varied. Default 0.7.")
-        _make_gen_slider(sliders_row, "Top-P", 0.1, 1.0,
-                         getattr(self.settings, "tts_top_p", 0.7), 0.05, "tts_top_p",
-                         tooltip="Nucleus sampling — limits which tokens are considered each step. Lower = safer/safer, higher = more creative. Default 0.7.")
-        _make_gen_slider(sliders_row, "Repetition Penalty", 1.0, 1.8,
-                         getattr(self.settings, "tts_repetition_penalty", 1.2), 0.05, "tts_repetition_penalty",
-                         tooltip="Penalizes repeating the same sounds or patterns. Raise if you hear looping/stuttering. Default 1.2.")
-        _make_gen_slider(sliders_row, "Chunk Length", 50, 300,
-                         getattr(self.settings, "tts_chunk_length", 150), 10, "tts_chunk_length", fmt="{:.0f}",
-                         tooltip="Tokens generated per speech chunk — smaller = lower latency but choppier; larger = smoother but slower to start. Default 150.")
-
-        # Mic recorder card
-        self._build_mic_recorder_card(tab)
-
-        # Voice grid (scrollable)
-        self.voice_grid_frame = ctk.CTkScrollableFrame(
+        # ── Sub-tab container ──────────────────────────────────────────
+        sub_tabs = ctk.CTkTabview(
             tab,
+            fg_color=COLORS["bg_card"],
+            segmented_button_selected_color=COLORS["accent"],
+            segmented_button_selected_hover_color=COLORS["accent_hover"],
+        )
+        sub_tabs.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        tab_design = sub_tabs.add("Voice Design")
+        tab_cloning = sub_tabs.add("Voice Cloning")
+
+        # ── Voice Design tab ───────────────────────────────────────────
+        ctk.CTkLabel(
+            tab_design,
+            text="Kokoro preset voices (54). Select one and click Use to make it the default.",
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["text_muted"],
+            justify="left",
+        ).pack(anchor="w", padx=8, pady=(6, 6))
+
+        self._kokoro_voice_rows: dict[str, ctk.CTkFrame] = {}
+
+        design_scroll = ctk.CTkScrollableFrame(
+            tab_design,
             fg_color=COLORS["bg_input"],
             corner_radius=8,
             scrollbar_button_color=COLORS["accent"],
         )
-        self.voice_grid_frame.pack(fill="both", expand=True, padx=15, pady=(0, 10))
+        design_scroll.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        def _make_kokoro_row(display_name: str, voice_id: str):
+            lang = KOKORO_VOICE_LANG.get(voice_id, "")
+            is_active = (getattr(self.settings, "kokoro_voice", "") == voice_id)
+            row = ctk.CTkFrame(
+                design_scroll,
+                fg_color=COLORS["bg_card"],
+                border_color=COLORS["accent"] if is_active else COLORS["border"],
+                border_width=2 if is_active else 1,
+                corner_radius=8,
+                height=48,
+            )
+            row.pack(fill="x", padx=4, pady=3)
+            row.pack_propagate(False)
+
+            ctk.CTkLabel(
+                row,
+                text=f"{display_name}",
+                font=(FONT_FAMILY, 12, "bold"),
+                text_color=COLORS["text_primary"],
+                width=180,
+                anchor="w",
+            ).pack(side="left", padx=(12, 4))
+
+            ctk.CTkLabel(
+                row,
+                text=voice_id,
+                font=(FONT_FAMILY, 11),
+                text_color=COLORS["text_muted"],
+                width=110,
+                anchor="w",
+            ).pack(side="left", padx=(0, 4))
+
+            ctk.CTkLabel(
+                row,
+                text=lang,
+                font=(FONT_FAMILY, 11),
+                text_color=COLORS["text_secondary"],
+                width=140,
+                anchor="w",
+            ).pack(side="left", padx=(0, 8))
+
+            ctk.CTkButton(
+                row,
+                text="Use as Default",
+                width=120,
+                height=28,
+                corner_radius=6,
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                font=(FONT_FAMILY, 11, "bold"),
+                command=lambda vid=voice_id: self._set_kokoro_default(vid),
+            ).pack(side="right", padx=(4, 8))
+
+            ctk.CTkButton(
+                row,
+                text="Preview",
+                width=80,
+                height=28,
+                corner_radius=6,
+                fg_color=COLORS["bg_input"],
+                hover_color=COLORS["bg_card_hover"],
+                border_color=COLORS["border"],
+                border_width=1,
+                font=(FONT_FAMILY, 11),
+                command=lambda vid=voice_id: self._preview_kokoro_voice(vid),
+            ).pack(side="right", padx=(4, 0))
+
+            self._kokoro_voice_rows[voice_id] = row
+
+        for _display, _vid in KOKORO_VOICES.items():
+            _make_kokoro_row(_display, _vid)
+
+        # ── Voice Cloning tab ──────────────────────────────────────────
+        if getattr(self.settings, "engine", "") == "kokoro":
+            banner = ctk.CTkFrame(
+                tab_cloning,
+                fg_color=COLORS["bg_card"],
+                border_color=COLORS["warning"],
+                border_width=1,
+                corner_radius=8,
+            )
+            banner.pack(fill="x", padx=8, pady=(6, 4))
+            ctk.CTkLabel(
+                banner,
+                text="Switch to VoxCPM or OmniVoice in Settings to use cloned voices.",
+                font=(FONT_FAMILY, 11, "bold"),
+                text_color=COLORS["warning"],
+            ).pack(anchor="w", padx=10, pady=6)
+
+        ctk.CTkLabel(
+            tab_cloning,
+            text="Clone voices from reference audio. Requires VoxCPM or OmniVoice (not Kokoro).",
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["text_muted"],
+            justify="left",
+        ).pack(anchor="w", padx=8, pady=(6, 6))
+
+        # Mic recorder card
+        self._build_mic_recorder_card(tab_cloning)
+
+        # Voice grid (scrollable)
+        self.voice_grid_frame = ctk.CTkScrollableFrame(
+            tab_cloning,
+            fg_color=COLORS["bg_input"],
+            corner_radius=8,
+            scrollbar_button_color=COLORS["accent"],
+        )
+        self.voice_grid_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
         self._refresh_voice_grid()
+
+    def _set_kokoro_default(self, voice_id: str):
+        """Set the active Kokoro preset voice and refresh row highlights."""
+        self.settings.kokoro_voice = voice_id
+        self.settings.default_voice = voice_id
+        try:
+            self.settings.save()
+        except Exception as exc:
+            logger.warning("Failed to save settings: %s", exc)
+        # Refresh row styling
+        rows = getattr(self, "_kokoro_voice_rows", {})
+        for vid, row in rows.items():
+            active = (vid == voice_id)
+            try:
+                row.configure(
+                    border_color=COLORS["accent"] if active else COLORS["border"],
+                    border_width=2 if active else 1,
+                )
+            except Exception:
+                pass
+
+    def _preview_kokoro_voice(self, voice_id: str):
+        """Generate a short sample with the given Kokoro voice."""
+        from tkinter import messagebox
+        if getattr(self.settings, "engine", "") != "kokoro":
+            messagebox.showinfo(
+                "Preview unavailable",
+                "Switch the active engine to Kokoro in Settings to preview preset voices.",
+            )
+            return
+        if not self.tts or not getattr(self.tts, "is_loaded", False):
+            messagebox.showinfo(
+                "Preview unavailable",
+                "Kokoro engine is not loaded yet. Open the Speech Lab tab or wait for startup to finish.",
+            )
+            return
+
+        def _on_complete(wav_path):
+            try:
+                import sounddevice as sd
+                import soundfile as sf
+                data, sr = sf.read(wav_path, dtype="float32")
+                sd.play(data, sr)
+            except Exception as exc:
+                logger.warning("Kokoro preview playback failed: %s", exc)
+
+        def _on_error(exc):
+            logger.error("Kokoro preview generation failed: %s", exc)
+
+        try:
+            self.tts.generate(
+                text="The quick brown fox jumps over the lazy dog.",
+                voice_id=voice_id,
+                on_complete=_on_complete,
+                on_error=_on_error,
+            )
+            logger.info("Kokoro preview requested: %s", voice_id)
+        except Exception as exc:
+            logger.error("Kokoro preview failed to start: %s", exc)
+            messagebox.showinfo("Preview", f"Could not start preview: {exc}")
 
     def _build_mic_recorder_card(self, parent):
         """Build the microphone recording section for voice cloning."""
@@ -5292,171 +5419,45 @@ class KoKoFishUI:
         )
         self.memsave_switch.pack(side="right", padx=15, pady=12)
 
-        _is_kokoro = getattr(self.settings, 'engine', 'fish14') == 'kokoro'
+        _active_engine_id = getattr(self.settings, 'engine', 'kokoro')
+        _is_kokoro = _active_engine_id == 'kokoro'
 
-        if not _is_kokoro:
-            # --- Fish-Speech Path (hidden in Kokoro mode) ---
-            section_header(main, t("SETTINGS_HEADER_FISH_ENGINE"))
+        # --- Active Engine Info (read-only) ---
+        section_header(main, t("SETTINGS_HEADER_KOKORO_ENGINE"))
 
-            path_row = setting_row(main)
+        engine_info_row = setting_row(main)
+        ctk.CTkLabel(
+            engine_info_row,
+            text=ENGINE_LABELS.get(_active_engine_id, _active_engine_id),
+            font=(FONT_FAMILY, 13),
+            text_color=COLORS["text_primary"],
+        ).pack(side="left", padx=15, pady=12)
 
-            ctk.CTkLabel(
-                path_row,
-                text=t("SETTINGS_FISH_PATH_LABEL"),
-                font=(FONT_FAMILY, 13),
-                text_color=COLORS["text_primary"],
-            ).pack(side="left", padx=15, pady=12)
+        # Install status
+        try:
+            from utils import is_kokoro_ready
+            if _active_engine_id == "kokoro":
+                _ready = is_kokoro_ready()
+            elif _active_engine_id == "voxcpm_05b":
+                from utils import is_voxcpm_ready
+                _ready = is_voxcpm_ready("0.5B")
+            elif _active_engine_id == "voxcpm_2b":
+                from utils import is_voxcpm_ready
+                _ready = is_voxcpm_ready("2B")
+            elif _active_engine_id == "omnivoice":
+                from utils import is_omnivoice_ready
+                _ready = is_omnivoice_ready()
+            else:
+                _ready = False
+        except Exception:
+            _ready = False
 
-            self.fish_path_var = ctk.StringVar(
-                value=self.settings.fish_speech_path or get_bundled_fish_speech_path()
-            )
-            self.fish_path_entry = ctk.CTkEntry(
-                path_row,
-                textvariable=self.fish_path_var,
-                width=400,
-                fg_color=COLORS["bg_input"],
-                border_color=COLORS["border"],
-                font=(FONT_FAMILY, 11),
-            )
-            self.fish_path_entry.pack(side="left", padx=5, pady=12)
-
-            ctk.CTkButton(
-                path_row,
-                text=t("SETTINGS_FISH_BTN_BROWSE"),
-                width=90,
-                height=30,
-                corner_radius=6,
-                fg_color=COLORS["bg_input"],
-                hover_color=COLORS["bg_card_hover"],
-                border_color=COLORS["border"],
-                border_width=1,
-                font=(FONT_FAMILY, 11),
-                command=self._browse_fish_path,
-            ).pack(side="left", padx=5, pady=12)
-
-            # Validation indicator
-            self.fish_status_label = ctk.CTkLabel(
-                path_row,
-                text="",
-                font=(FONT_FAMILY, 11),
-            )
-            self.fish_status_label.pack(side="right", padx=15, pady=12)
-            self._validate_fish_path()
-
-            # Flash Attention status (S1/S1-Mini only)
-            _active_engine = getattr(self.settings, "engine", "fish14")
-            if _active_engine in ("s1mini", "s1"):
-                from utils import is_flash_attn_installed, install_flash_attn
-                fa_row = setting_row(main)
-                ctk.CTkLabel(
-                    fa_row, text=t("SETTINGS_FISH_FLASH_ATTN_LABEL"),
-                    font=(FONT_FAMILY, 13), text_color=COLORS["text_primary"],
-                ).pack(side="left", padx=15, pady=12)
-                ctk.CTkLabel(
-                    fa_row, text=t("SETTINGS_FISH_FLASH_ATTN_DESC"),
-                    font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"],
-                ).pack(side="left", padx=(0, 10), pady=12)
-
-                import sys as _sys
-                _fa_installed = is_flash_attn_installed()
-                _fa_win = _sys.platform == "win32"
-
-                if _fa_installed:
-                    _fa_text  = t("SETTINGS_FISH_FLASH_ATTN_INSTALLED")
-                    _fa_color = COLORS["success"]
-                elif _fa_win:
-                    _fa_text  = t("SETTINGS_FISH_FLASH_ATTN_NO_WIN")
-                    _fa_color = COLORS["text_muted"]
-                else:
-                    _fa_text  = t("SETTINGS_FISH_FLASH_ATTN_NOT_INSTALLED")
-                    _fa_color = COLORS["warning"]
-
-                fa_status_lbl = ctk.CTkLabel(
-                    fa_row, text=_fa_text, font=(FONT_FAMILY, 11), text_color=_fa_color,
-                )
-                fa_status_lbl.pack(side="right", padx=15, pady=12)
-
-                if not _fa_installed and not _fa_win:
-                    def _install_fa(lbl=fa_status_lbl):
-                        lbl.configure(text=t("SETTINGS_FISH_FLASH_ATTN_INSTALLING"), text_color=COLORS["text_muted"])
-                        def _done(ok, msg):
-                            def _ui():
-                                if ok:
-                                    lbl.configure(text=t("SETTINGS_FISH_FLASH_ATTN_INSTALLED_RESTART"), text_color=COLORS["success"])
-                                else:
-                                    lbl.configure(text=t("SETTINGS_FISH_FLASH_ATTN_FAILED"), text_color=COLORS["danger"])
-                            self.root.after(0, _ui)
-                        install_flash_attn(
-                            on_progress=lambda m, _f: self.root.after(
-                                0, lambda msg=m: lbl.configure(text=msg, text_color=COLORS["text_muted"])
-                            ),
-                            on_complete=_done,
-                        )
-                    ctk.CTkButton(
-                        fa_row, text=t("SETTINGS_BTN_INSTALL"), width=90, height=28, corner_radius=6,
-                        fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
-                        font=(FONT_FAMILY, 11), command=_install_fa,
-                    ).pack(side="right", padx=(0, 5), pady=12)
-
-            # Chunk Length slider
-            chunk_row = setting_row(main)
-            _chunk_init = getattr(self.settings, "tts_chunk_length", 100)
-            _chunk_lbl = ctk.CTkLabel(
-                chunk_row,
-                text=f"Chunk Length:  {int(_chunk_init)}",
-                font=(FONT_FAMILY, 13),
-                text_color=COLORS["text_primary"],
-            )
-            _chunk_lbl.pack(side="left", padx=15, pady=10)
-            ctk.CTkLabel(
-                chunk_row,
-                text="Tokens per decode step — lower = less VRAM, higher = slightly faster",
-                font=(FONT_FAMILY, 11),
-                text_color=COLORS["text_muted"],
-            ).pack(side="left", padx=(0, 10), pady=10)
-
-            def _on_chunk_change(v):
-                val = int(round(float(v) / 10) * 10)
-                _chunk_lbl.configure(text=f"Chunk Length:  {val}")
-                self.settings.tts_chunk_length = val
-                self.settings.save()
-                if self.tts and hasattr(self.tts, "chunk_length"):
-                    self.tts.chunk_length = val
-
-            _chunk_sl = ctk.CTkSlider(
-                chunk_row,
-                from_=50, to=300,
-                number_of_steps=25,
-                command=_on_chunk_change,
-                progress_color=COLORS["accent"],
-                button_color=COLORS["accent_light"],
-                width=180,
-                height=16,
-            )
-            _chunk_sl.set(_chunk_init)
-            _chunk_sl.pack(side="right", padx=15, pady=10)
-        else:
-            # --- Kokoro Engine Info ---
-            section_header(main, t("SETTINGS_HEADER_KOKORO_ENGINE"))
-            kokoro_row = setting_row(main)
-            ctk.CTkLabel(
-                kokoro_row,
-                text=t("SETTINGS_KOKORO_MODEL_LABEL"),
-                font=(FONT_FAMILY, 13),
-                text_color=COLORS["text_primary"],
-            ).pack(side="left", padx=15, pady=12)
-            ctk.CTkLabel(
-                kokoro_row,
-                text=t("SETTINGS_KOKORO_MODEL_DESC"),
-                font=(FONT_FAMILY, 11),
-                text_color=COLORS["text_secondary"],
-            ).pack(side="left", padx=5, pady=12)
-            ctk.CTkLabel(
-                kokoro_row,
-                text=t("SETTINGS_KOKORO_READY"),
-                font=(FONT_FAMILY, 11),
-                text_color=COLORS["success"],
-            ).pack(side="right", padx=15, pady=12)
+        ctk.CTkLabel(
+            engine_info_row,
+            text=(t("SETTINGS_KOKORO_READY") if _ready else "Not installed"),
+            font=(FONT_FAMILY, 11),
+            text_color=(COLORS["success"] if _ready else COLORS["warning"]),
+        ).pack(side="right", padx=15, pady=12)
 
 
 
@@ -5476,22 +5477,11 @@ class KoKoFishUI:
             text_color=COLORS["text_muted"],
         ).pack(side="left", padx=(0, 10), pady=12)
 
-        engine_options = [
-            t("SETTINGS_ENGINE_OPT_KOKORO"),
-            t("SETTINGS_ENGINE_OPT_FISH14"),
-            t("SETTINGS_ENGINE_OPT_S1MINI"),
-            t("SETTINGS_ENGINE_OPT_S1"),
-        ]
+        engine_options = [ENGINE_LABELS[k] for k in VALID_ENGINES]
 
         # Determine current engine from settings.engine field
         _eng = getattr(self.settings, 'engine', 'kokoro')
-        _eng_to_option = {
-            "kokoro": engine_options[0],
-            "fish14": engine_options[1],
-            "s1mini": engine_options[2],
-            "s1":     engine_options[3],
-        }
-        current_engine = _eng_to_option.get(_eng, engine_options[0])
+        current_engine = engine_label(_eng) if _eng in VALID_ENGINES else engine_label('kokoro')
 
         self.engine_var = ctk.StringVar(value=current_engine)
         self.engine_menu = ctk.CTkOptionMenu(
@@ -5910,7 +5900,7 @@ class KoKoFishUI:
             self.playlist_empty_label.pack(pady=30)
             return
 
-        is_kokoro = getattr(self.settings, 'engine', 'fish14') == 'kokoro'
+        is_kokoro = getattr(self.settings, 'engine', 'kokoro') == 'kokoro'
         if is_kokoro:
             # Filter by the selected language group radio
             selected_lang = getattr(self, '_kokoro_lang_var', None)
@@ -6346,7 +6336,7 @@ class KoKoFishUI:
         if index < 0 or index >= len(self._playlist_items):
             return
         from text_editor_window import TextEditorWindow
-        engine = getattr(self.settings, 'engine', 'fish14')
+        engine = getattr(self.settings, 'engine', 'kokoro')
         TextEditorWindow(
             parent=self.root,
             item=self._playlist_items[index],
@@ -6669,18 +6659,7 @@ class KoKoFishUI:
 
     def _sync_gen_settings_to_engine(self):
         """Push persisted generation quality settings into the TTS engine."""
-        if not self.tts:
-            return
-        mapping = {
-            "tts_temperature": "temperature",
-            "tts_top_p": "top_p",
-            "tts_repetition_penalty": "repetition_penalty",
-            "tts_chunk_length": "chunk_length",
-        }
-        for setting_key, attr in mapping.items():
-            val = getattr(self.settings, setting_key, None)
-            if val is not None and hasattr(self.tts, attr):
-                setattr(self.tts, attr, val)
+        pass
 
     def _cleanup_old_temp_audio(self, max_age_days: int = 7):
         """Delete temp WAVs older than max_age_days from AUDIO_TEMP_DIR."""
@@ -6750,7 +6729,8 @@ class KoKoFishUI:
         y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 70
         popup.geometry(f"+{x}+{y}")
         
-        engine_name = "Kokoro" if getattr(self.settings, 'engine', 'fish14') == 'kokoro' else "Fish-Speech"
+        _eng_id = getattr(self.settings, 'engine', 'kokoro')
+        engine_name = ENGINE_LABELS.get(_eng_id, _eng_id)
         lbl_msg = ctk.CTkLabel(popup, text=t("SPEECH_LAB_ENGINE_BOOTING", engine_name=engine_name), font=(FONT_FAMILY, 14, "bold"), text_color=COLORS["text_primary"])
         lbl_msg.pack(pady=(20, 10))
         
@@ -7069,7 +7049,7 @@ class KoKoFishUI:
         item = self._playlist_items[self._current_playing]
 
         # ── Preprocessing: Translate → Assisted Flow (chain in one thread) ─
-        _is_kokoro_mode = getattr(self.settings, 'engine', 'fish14') == 'kokoro'
+        _is_kokoro_mode = getattr(self.settings, 'engine', 'kokoro') == 'kokoro'
         _needs_af       = item.get("assisted_flow", False)
 
         # Resolve target language and translation need now (on main thread)
@@ -7100,7 +7080,7 @@ class KoKoFishUI:
                 ))
             if is_llm_available() and is_qwen_model_ready():
                 self._rebuild_playlist_ui()
-                _pre_engine = getattr(self.settings, 'engine', 'fish14')
+                _pre_engine = getattr(self.settings, 'engine', 'kokoro')
 
                 _global_style = getattr(self._content_style_var, "get", lambda: "None")()
 
@@ -7150,11 +7130,11 @@ class KoKoFishUI:
         text_to_use = _text_override if _text_override is not None else item["text"]
 
         # ── Free VRAM before GPU-heavy TTS engines ───────────────────────
-        # S1 and S1mini need most of the 12 GB VRAM; unload the LLM first
-        # if it was loaded onto the GPU.  It will reload automatically on the
-        # next Prompt Lab / Translate / Assisted-Flow request.
+        # VoxCPM 2B and OmniVoice can use significant VRAM; unload the LLM
+        # first if it was loaded onto the GPU. It will reload automatically
+        # on the next Prompt Lab / Translate / Assisted-Flow request.
         _engine_now = getattr(self.settings, "engine", "kokoro")
-        if _engine_now in ("s1mini", "s1") and getattr(self.settings, "use_cuda", False):
+        if _engine_now in ("voxcpm_2b", "omnivoice") and getattr(self.settings, "use_cuda", False):
             try:
                 from tag_suggester import is_llm_on_gpu, unload_llm
                 if is_llm_on_gpu():
@@ -7321,7 +7301,7 @@ class KoKoFishUI:
             self.root.after(0, lambda: self.tts_status.configure(text=t("SPEECH_LAB_STATUS_ERROR", error=exc)))
 
         # Route to correct engine based on settings
-        _is_kokoro_mode = getattr(self.settings, 'engine', 'fish14') == 'kokoro'
+        _is_kokoro_mode = getattr(self.settings, 'engine', 'kokoro') == 'kokoro'
 
         if _is_kokoro_mode:
             # voice_name may be display name or raw ID — handle both
@@ -7998,9 +7978,6 @@ class KoKoFishUI:
             ("Script → Kokoro",   "script_kokoro"),
             ("Script → Fish",     "script_fish"),
             ("Kokoro Flow",       "kokoro_af"),
-            ("Fish 1.4 Flow",     "fish14_af"),
-            ("S1 Mini Flow",      "s1mini_af"),
-            ("S1 Full Flow",      "s1_af"),
             ("Translation",       "translate"),
             ("Tone Rewrite",      "tone"),
             ("Tag Gen",           "tag_gen"),
@@ -8436,18 +8413,11 @@ class KoKoFishUI:
 
     def _on_engine_select(self, new_val: str):
         """Update the active AI engine, downloading models if needed, then restart."""
-        from utils import is_fish_speech_ready, setup_fish_speech, is_kokoro_ready, setup_kokoro, FISH_ENGINE_CONFIG
+        from utils import is_kokoro_ready, setup_kokoro
 
-        # Map display label → engine key
-        if "Kokoro" in new_val:
-            new_engine = "kokoro"
-        elif "1.4" in new_val:
-            new_engine = "fish14"
-        elif "S1 Mini" in new_val:
-            new_engine = "s1mini"
-        elif "S1 Full" in new_val:
-            new_engine = "s1"
-        else:
+        # Map display label → engine id
+        new_engine = engine_id_from_label(new_val)
+        if new_engine not in VALID_ENGINES:
             new_engine = "kokoro"
 
         prev_engine = getattr(self.settings, 'engine', 'kokoro')
@@ -8458,55 +8428,17 @@ class KoKoFishUI:
 
         # Save engine choice immediately
         self.settings.engine = new_engine
-        if new_engine in FISH_ENGINE_CONFIG:
-            from utils import _OPENAUDIO_ENGINES, FISH_CODE_DIR_OA
-            ckpt_folder, _repo, _needs_token = FISH_ENGINE_CONFIG[new_engine]
-            # OpenAudio S1/S1-Mini use fish-speech-latest; Fish14 uses fish-speech
-            code_dir = FISH_CODE_DIR_OA if new_engine in _OPENAUDIO_ENGINES else "fish-speech"
-            self.settings.fish_speech_path = os.path.join(APP_DIR, code_dir)
-            self.settings.checkpoint_name = f"checkpoints/{ckpt_folder}"
         self.settings.save()
 
-        # Fish Speech engines — check presence, download on first use
-        if new_engine in FISH_ENGINE_CONFIG:
-            if not is_fish_speech_ready(new_engine):
-                _ckpt_folder, _hf_repo, needs_token = FISH_ENGINE_CONFIG[new_engine]
-                if needs_token:
-                    # Show HF token dialog; it handles download + restart on success
-                    self._show_hf_token_dialog(new_engine, prev_engine)
-                    return
-                else:
-                    # fish14 — no account required
-                    download = messagebox.askyesno(
-                        t("SETTINGS_DOWNLOAD_REQUIRED_TITLE"),
-                        t("SETTINGS_FISH14_DOWNLOAD_BODY"),
-                    )
-                    if not download:
-                        self.settings.engine = prev_engine
-                        self.settings.save()
-                        self._update_engine_dropdown()
-                        return
+        def _revert():
+            self.settings.engine = prev_engine
+            self.settings.save()
+            self._update_engine_dropdown()
 
-                    def _on_progress(msg, _frac=None):
-                        self.root.after(0, lambda m=msg: self.update_tts_status(f"⬇ {m}", COLORS["warning"]))
+        def _on_progress(msg, _frac=None):
+            self.root.after(0, lambda m=msg: self.update_tts_status(f"⬇ {m}", COLORS["warning"]))
 
-                    def _download(_eng=new_engine):
-                        ok = setup_fish_speech(engine=_eng, on_progress=_on_progress)
-                        if ok:
-                            self.root.after(0, lambda: self.update_tts_status(
-                                t("SETTINGS_FISH14_DOWNLOAD_READY"), COLORS["success"]
-                            ))
-                            self.root.after(1500, self._restart_app)
-                        else:
-                            self.root.after(0, lambda: self.update_tts_status(
-                                t("SETTINGS_DOWNLOAD_FAILED"), COLORS["danger"]
-                            ))
-                            self.root.after(0, self._update_engine_dropdown)
-
-                    threading.Thread(target=_download, daemon=True, name="FishDownload").start()
-                    return
-
-            # Models already present — just restart
+        def _prompt_restart():
             confirm = messagebox.askyesno(
                 t("SETTINGS_RESTART_REQUIRED_TITLE"),
                 t("SETTINGS_RESTART_REQUIRED_BODY", engine=new_val),
@@ -8515,9 +8447,27 @@ class KoKoFishUI:
                 self._restart_app()
             else:
                 self._update_engine_dropdown()
-            return
 
-        # Kokoro — check presence, download if missing
+        def _run_install(install_fn, ready_msg):
+            def _worker():
+                try:
+                    ok = install_fn()
+                except Exception as exc:
+                    logger.warning("Engine install failed: %s", exc)
+                    ok = False
+                if ok:
+                    self.root.after(0, lambda: self.update_tts_status(
+                        ready_msg, COLORS["success"]
+                    ))
+                    self.root.after(1500, self._restart_app)
+                else:
+                    self.root.after(0, lambda: self.update_tts_status(
+                        t("SETTINGS_DOWNLOAD_FAILED"), COLORS["danger"]
+                    ))
+                    self.root.after(0, _revert)
+            threading.Thread(target=_worker, daemon=True, name="EngineInstall").start()
+
+        # Kokoro
         if new_engine == "kokoro":
             if not is_kokoro_ready():
                 download = messagebox.askyesno(
@@ -8525,164 +8475,66 @@ class KoKoFishUI:
                     t("SETTINGS_KOKORO_DOWNLOAD_BODY"),
                 )
                 if not download:
-                    self.settings.engine = prev_engine
-                    self.settings.save()
-                    self._update_engine_dropdown()
+                    _revert()
                     return
-
-                def _on_progress(msg, _frac=None):
-                    self.root.after(0, lambda m=msg: self.update_tts_status(f"⬇ {m}", COLORS["warning"]))
-
-                def _download_kokoro():
-                    ok = setup_kokoro(on_progress=_on_progress)
-                    if ok:
-                        self.root.after(0, lambda: self.update_tts_status(
-                            t("SETTINGS_KOKORO_DOWNLOAD_READY"), COLORS["success"]
-                        ))
-                        self.root.after(1500, self._restart_app)
-                    else:
-                        self.root.after(0, lambda: self.update_tts_status(
-                            t("SETTINGS_DOWNLOAD_FAILED"), COLORS["danger"]
-                        ))
-                        self.root.after(0, self._update_engine_dropdown)
-
-                threading.Thread(target=_download_kokoro, daemon=True, name="KokoroDownload").start()
+                _run_install(
+                    lambda: setup_kokoro(on_progress=_on_progress),
+                    t("SETTINGS_KOKORO_DOWNLOAD_READY"),
+                )
                 return
+            _prompt_restart()
+            return
 
-            confirm = messagebox.askyesno(
-                t("SETTINGS_RESTART_REQUIRED_TITLE"),
-                t("SETTINGS_RESTART_REQUIRED_BODY", engine=new_val),
-            )
-            if confirm:
-                self._restart_app()
-            else:
-                self._update_engine_dropdown()
-
-    def _show_hf_token_dialog(self, engine: str, prev_engine: str):
-        """Show a dialog prompting the user for their HuggingFace token to download a gated model."""
-        from utils import setup_fish_speech, FISH_ENGINE_CONFIG
-        import webbrowser
-
-        _ckpt_folder, hf_repo, _needs_token = FISH_ENGINE_CONFIG[engine]
-        engine_display = "S1 Mini" if engine == "s1mini" else "S1 Full"
-        model_size = "~2.5 GB" if engine == "s1mini" else "~6 GB"
-
-        dialog = ctk.CTkToplevel(self.root)
-        dialog.title(t("SETTINGS_HF_DIALOG_TITLE", engine=engine_display))
-        dialog.geometry("520x400")
-        dialog.grab_set()
-        dialog.resizable(False, False)
-        dialog.configure(fg_color=COLORS["bg_card"])
-
-        ctk.CTkLabel(
-            dialog,
-            text=t("SETTINGS_HF_DIALOG_HEADING", engine=engine_display, size=model_size),
-            font=(FONT_FAMILY, 16, "bold"),
-            text_color=COLORS["text_primary"],
-        ).pack(pady=(24, 4))
-
-        ctk.CTkLabel(
-            dialog,
-            text=t("SETTINGS_HF_DIALOG_BODY"),
-            font=(FONT_FAMILY, 12),
-            text_color=COLORS["text_secondary"],
-            justify="left",
-        ).pack(padx=24, pady=(0, 8))
-
-        link_btn = ctk.CTkButton(
-            dialog,
-            text=t("SETTINGS_HF_DIALOG_OPEN_PAGE", repo=hf_repo),
-            font=(FONT_FAMILY, 12),
-            fg_color="transparent",
-            text_color=COLORS["accent"],
-            hover_color=COLORS["bg_card_hover"],
-            command=lambda: webbrowser.open(f"https://huggingface.co/{hf_repo}"),
-        )
-        link_btn.pack(padx=24, pady=(0, 12))
-
-        ctk.CTkLabel(
-            dialog,
-            text=t("SETTINGS_HF_TOKEN_LABEL"),
-            font=(FONT_FAMILY, 12),
-            text_color=COLORS["text_primary"],
-            anchor="w",
-        ).pack(padx=24, fill="x")
-
-        token_entry = ctk.CTkEntry(
-            dialog,
-            placeholder_text="hf_...",
-            font=(FONT_FAMILY, 12),
-            fg_color=COLORS["bg_input"],
-            show="*",
-        )
-        token_entry.pack(padx=24, fill="x", pady=(4, 4))
-
-        # Pre-fill if we already have a saved token
-        saved_token = getattr(self.settings, 'hf_token', '')
-        if saved_token:
-            token_entry.insert(0, saved_token)
-
-        status_label = ctk.CTkLabel(
-            dialog, text="", font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"]
-        )
-        status_label.pack(padx=24)
-
-        def _cancel():
-            self.settings.engine = prev_engine
-            self.settings.save()
-            self._update_engine_dropdown()
-            dialog.destroy()
-
-        def _start_download():
-            token = token_entry.get().strip()
-            if not token:
-                status_label.configure(text=t("SETTINGS_HF_ENTER_TOKEN"), text_color=COLORS["danger"])
+        # VoxCPM 0.5B / 2B
+        if new_engine in ("voxcpm_05b", "voxcpm_2b"):
+            from utils import is_voxcpm_ready, setup_voxcpm
+            variant = "0.5B" if new_engine == "voxcpm_05b" else "2B"
+            if not is_voxcpm_ready(variant):
+                size_txt = "~1 GB" if variant == "0.5B" else "~4 GB"
+                body = (
+                    f"Download VoxCPM {variant} ({size_txt})? "
+                    "This will install the voxcpm package and download model weights."
+                )
+                download = messagebox.askyesno(
+                    t("SETTINGS_DOWNLOAD_REQUIRED_TITLE"),
+                    body,
+                )
+                if not download:
+                    _revert()
+                    return
+                _run_install(
+                    lambda v=variant: setup_voxcpm(v, on_progress=_on_progress),
+                    f"VoxCPM {variant} ready. Restarting…",
+                )
                 return
-            self.settings.hf_token = token
-            self.settings.save()
-            download_btn.configure(state="disabled", text=t("SETTINGS_HF_DOWNLOADING"))
-            status_label.configure(text=t("SETTINGS_HF_STATUS_STARTING"), text_color=COLORS["warning"])
+            _prompt_restart()
+            return
 
-            def _on_progress(msg, _frac=None):
-                dialog.after(0, lambda m=msg: status_label.configure(
-                    text=m, text_color=COLORS["warning"]
-                ))
+        # OmniVoice
+        if new_engine == "omnivoice":
+            from utils import is_omnivoice_ready, setup_omnivoice
+            if not is_omnivoice_ready():
+                body = (
+                    "Download OmniVoice (~2 GB)? "
+                    "This will install the omnivoice package and download model weights."
+                )
+                download = messagebox.askyesno(
+                    t("SETTINGS_DOWNLOAD_REQUIRED_TITLE"),
+                    body,
+                )
+                if not download:
+                    _revert()
+                    return
+                _run_install(
+                    lambda: setup_omnivoice(on_progress=_on_progress),
+                    "OmniVoice ready. Restarting…",
+                )
+                return
+            _prompt_restart()
+            return
 
-            def _download(_eng=engine, _tok=token):
-                ok = setup_fish_speech(engine=_eng, on_progress=_on_progress, hf_token=_tok)
-                if ok:
-                    dialog.after(0, lambda: status_label.configure(
-                        text=t("SETTINGS_HF_STATUS_READY", engine=engine_display), text_color=COLORS["success"]
-                    ))
-                    dialog.after(1500, lambda: (dialog.destroy(), self._restart_app()))
-                else:
-                    dialog.after(0, lambda: status_label.configure(
-                        text=t("SETTINGS_HF_STATUS_FAILED"), text_color=COLORS["danger"]
-                    ))
-                    dialog.after(0, lambda: download_btn.configure(state="normal", text=t("SETTINGS_HF_BTN_RETRY")))
-
-            threading.Thread(target=_download, daemon=True, name="HFDownload").start()
-
-        btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_row.pack(fill="x", padx=24, pady=(12, 20))
-
-        ctk.CTkButton(
-            btn_row,
-            text=t("COMMON_BTN_CANCEL"),
-            width=100,
-            fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_card_hover"],
-            command=_cancel,
-        ).pack(side="left")
-
-        download_btn = ctk.CTkButton(
-            btn_row,
-            text=t("SETTINGS_HF_BTN_SAVE_DOWNLOAD"),
-            width=180,
-            fg_color=COLORS["accent"],
-            command=_start_download,
-        )
-        download_btn.pack(side="right")
+        # Unknown engine — revert
+        _revert()
 
     def _restart_app(self):
         """Save settings and restart the process."""
@@ -8693,36 +8545,9 @@ class KoKoFishUI:
     def _update_engine_dropdown(self):
         """Revert the engine dropdown to match the saved setting."""
         _eng = getattr(self.settings, 'engine', 'kokoro')
-        _eng_to_option = {
-            "kokoro": t("SETTINGS_ENGINE_OPT_KOKORO"),
-            "fish14": t("SETTINGS_ENGINE_OPT_FISH14"),
-            "s1mini": t("SETTINGS_ENGINE_OPT_S1MINI"),
-            "s1":     t("SETTINGS_ENGINE_OPT_S1"),
-        }
-        self.engine_var.set(_eng_to_option.get(_eng, _eng_to_option["kokoro"]))
-
-
-    def _browse_fish_path(self):
-        path = filedialog.askdirectory(title="Select Fish-Speech directory")
-        if path:
-            self.fish_path_var.set(path)
-            self.settings.fish_speech_path = path
-            self._validate_fish_path()
-            self.settings.save()
-
-    def _validate_fish_path(self):
-        path = self.fish_path_var.get()
-        result = validate_fish_speech_path(path)
-        if result["valid"]:
-            self.fish_status_label.configure(
-                text="✅  Valid",
-                text_color=COLORS["success"],
-            )
-        else:
-            self.fish_status_label.configure(
-                text=f"❌  {result['message']}",
-                text_color=COLORS["danger"],
-            )
+        if _eng not in ENGINE_LABELS:
+            _eng = 'kokoro'
+        self.engine_var.set(ENGINE_LABELS[_eng])
 
     def _install_llama_cpp(self):
         """Install llama-cpp-python from the Settings tab with inline log output."""

@@ -271,328 +271,6 @@ def setup_kokoro(on_progress=None) -> bool:
     return is_kokoro_ready()
 
 
-# ---------------------------------------------------------------------------
-# Fish-Speech engine config
-# ---------------------------------------------------------------------------
-
-# Maps engine key → (checkpoint folder name, HuggingFace repo ID, needs HF token)
-FISH_ENGINE_CONFIG = {
-    "fish14": ("fish-speech-1.4", "fishaudio/fish-speech-1.4", False),
-    "s1mini":  ("openaudio-s1-mini", "fishaudio/openaudio-s1-mini", True),
-    "s1":      ("openaudio-s1",      "fishaudio/openaudio-s1",      True),
-}
-
-# Fish14 uses the 1.4.3 code directory; OpenAudio S1/S1-Mini use fish-speech-latest
-FISH_CODE_DIR_NAME = "fish-speech"          # Fish-Speech 1.4 code
-FISH_CODE_DIR_OA   = "fish-speech-latest"   # OpenAudio S1/S1-Mini code
-FISH_CODE_URL = "https://github.com/fishaudio/fish-speech/archive/refs/tags/v1.4.3.zip"
-
-# Engines that use OpenAudio / fish-speech-latest code
-_OPENAUDIO_ENGINES = {"s1mini", "s1"}
-
-
-def _get_code_dir_name(engine: str) -> str:
-    """Return the correct code directory name for this engine."""
-    return FISH_CODE_DIR_OA if engine in _OPENAUDIO_ENGINES else FISH_CODE_DIR_NAME
-
-
-def is_fish_speech_ready(engine: str = "fish14") -> bool:
-    """Return True if the Fish-Speech code and checkpoints for the engine are present."""
-    app_dir = os.path.dirname(os.path.abspath(__file__))
-    code_dir = os.path.join(app_dir, _get_code_dir_name(engine))
-    ckpt_name = FISH_ENGINE_CONFIG.get(engine, FISH_ENGINE_CONFIG["fish14"])[0]
-    # Checkpoints for OpenAudio engines live inside their own code dir; for Fish14
-    # they live inside the fish-speech 1.4 code dir.
-    ckpt_dir  = os.path.join(code_dir, "checkpoints", ckpt_name)
-
-    if not os.path.isdir(code_dir) or not os.listdir(code_dir):
-        return False
-    if not os.path.isdir(ckpt_dir):
-        return False
-    return any(
-        f.endswith((".pth", ".bin", ".safetensors"))
-        for f in os.listdir(ckpt_dir)
-    )
-
-
-def is_flash_attn_installed() -> bool:
-    """Return True if flash_attn is importable."""
-    try:
-        import flash_attn  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
-
-# Latest flash-attention version with Windows + CUDA pre-built wheels.
-# Update this string when a newer release adds windows_amd64 wheels.
-_FA_VERSION = "2.7.4"
-_FA_GITHUB  = "https://github.com/Dao-AILab/flash-attention/releases/download"
-
-
-def _build_flash_attn_wheel_url() -> str | None:
-    """
-    Construct the GitHub pre-built wheel URL for the current
-    Python / PyTorch / CUDA environment on Windows.
-
-    Returns None if the environment is CPU-only or the info can't be read.
-    """
-    try:
-        import torch
-        cuda_str = getattr(torch.version, "cuda", None) or ""
-        if not cuda_str:
-            return None  # CPU-only PyTorch — flash_attn won't help
-        cuda_tag = cuda_str.replace(".", "")  # "12.4" → "124"
-
-        # Strip local/dev suffixes from the torch version string
-        torch_short = re.match(r"(\d+\.\d+\.\d+)", torch.__version__)
-        torch_tag = torch_short.group(1) if torch_short else torch.__version__.split("+")[0]
-
-        py_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"  # "cp312"
-        wheel = (
-            f"flash_attn-{_FA_VERSION}"
-            f"+cu{cuda_tag}torch{torch_tag}cxx11abiFALSE"
-            f"-{py_tag}-{py_tag}-win_amd64.whl"
-        )
-        return f"{_FA_GITHUB}/v{_FA_VERSION}/{wheel}"
-    except Exception as exc:
-        logger.debug("_build_flash_attn_wheel_url failed: %s", exc)
-        return None
-
-
-def install_flash_attn(
-    on_progress=None,
-    on_complete=None,
-):
-    """
-    Install flash-attn in a background thread.
-
-    Strategy:
-      1. Try a pre-built Windows wheel matched to the current Python/PyTorch/CUDA.
-      2. Fall back to `pip install flash-attn --prefer-binary` if the URL fails.
-
-    on_progress(message, fraction) — optional progress callback
-    on_complete(ok: bool, message: str) — called when done
-    """
-    # flash-attn has no official Windows binary wheels on PyPI.
-    # Pre-built community wheels exist but only for specific CUDA/torch combos.
-    # We try the matched wheel URL; if it 404s we skip PyPI (it never has Windows binaries).
-    if sys.platform == "win32":
-        msg = (
-            "flash-attn has no official Windows binary.\n"
-            "S1/S1-Mini will still work — just without the 3-5x speed boost.\n"
-            "See: https://github.com/Dao-AILab/flash-attention/issues"
-        )
-        logger.warning("flash-attn: %s", msg)
-        if on_complete:
-            on_complete(False, msg)
-        return
-
-    def _worker():
-        app_dir  = os.path.dirname(os.path.abspath(__file__))
-        venv_pip = os.path.join(app_dir, "venv", "Scripts", "pip.exe")
-        pip_cmd  = [venv_pip] if os.path.isfile(venv_pip) else [sys.executable, "-m", "pip"]
-
-        # Try the pre-built wheel URL first
-        wheel_url = _build_flash_attn_wheel_url()
-        attempts = []
-        if wheel_url:
-            attempts.append(("pre-built wheel", pip_cmd + ["install", wheel_url, "--progress-bar", "off"]))
-        # Always have a PyPI fallback
-        attempts.append(("PyPI", pip_cmd + ["install", "flash-attn", "--prefer-binary", "--progress-bar", "off"]))
-
-        for label, cmd in attempts:
-            if on_progress:
-                on_progress(f"Installing flash-attn ({label})…", 0.3)
-            logger.info("flash_attn install attempt via %s: %s", label, " ".join(cmd))
-            try:
-                CREATE_NO_WINDOW = 0x08000000
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    creationflags=CREATE_NO_WINDOW,
-                )
-                output_lines = []
-                for line in proc.stdout:
-                    output_lines.append(line.rstrip())
-                proc.wait()
-                if proc.returncode == 0:
-                    logger.info("flash-attn installed successfully via %s.", label)
-                    if on_progress:
-                        on_progress("flash-attn installed.", 1.0)
-                    if on_complete:
-                        on_complete(True, f"flash-attn installed via {label}.")
-                    return
-                # Log what pip actually said so we can diagnose failures
-                for line in output_lines:
-                    logger.warning("flash_attn pip: %s", line)
-                logger.warning("flash-attn install via %s failed (code %d).", label, proc.returncode)
-            except Exception as exc:
-                logger.warning("flash-attn install via %s error: %s", label, exc)
-
-        # Both attempts failed
-        msg = (
-            "flash-attn could not be installed automatically.\n"
-            "You may need to install it manually: pip install flash-attn"
-        )
-        logger.error(msg)
-        if on_complete:
-            on_complete(False, msg)
-
-    threading.Thread(target=_worker, daemon=True, name="FlashAttnInstall").start()
-
-
-def setup_fish_speech(engine: str = "fish14", on_progress=None, hf_token: str = "") -> bool:
-    """
-    Ensure Fish-Speech code and model checkpoints are present for the given engine.
-
-    engine: "fish14" | "s1mini" | "s1"
-
-    Steps:
-      1. Downloads Fish-Speech v1.4.3 source from GitHub if not present (~20 MB).
-      2. Downloads the engine's checkpoints from HuggingFace (~1–2 GB).
-         S1 Mini and S1 require a HuggingFace token (gated models).
-
-    on_progress(message, fraction) is called throughout.
-    Returns True if ready, False on failure.
-    """
-    import urllib.request
-    import zipfile
-    import tempfile
-
-    cfg = FISH_ENGINE_CONFIG.get(engine, FISH_ENGINE_CONFIG["fish14"])
-    ckpt_name, hf_repo, needs_token = cfg
-
-    app_dir  = os.path.dirname(os.path.abspath(__file__))
-    is_openaudio = engine in _OPENAUDIO_ENGINES
-    code_dir = os.path.join(app_dir, _get_code_dir_name(engine))
-    ckpt_dir = os.path.join(code_dir, "checkpoints", ckpt_name)
-
-    # --- Step 1: Fish-Speech code ---
-    # OpenAudio engines use fish-speech-latest which must already be present
-    # (it is not auto-downloadable from a public zip).
-    # Fish14 code is downloaded from GitHub if missing.
-    if is_openaudio:
-        if not os.path.isdir(code_dir) or not os.listdir(code_dir):
-            logger.error(
-                "OpenAudio code directory not found: %s. "
-                "Please clone fish-speech (latest) into that folder manually.",
-                code_dir,
-            )
-            return False
-    else:
-        if not os.path.isdir(code_dir) or not os.listdir(code_dir):
-            try:
-                if on_progress:
-                    on_progress("Downloading Fish-Speech code (~20 MB)...", 0.05)
-                logger.info("Downloading Fish-Speech source from %s", FISH_CODE_URL)
-                tmp_zip = os.path.join(tempfile.gettempdir(), "fish_speech_src.zip")
-
-                def _hook(b, bs, total):
-                    if on_progress and total > 0:
-                        frac = min(b * bs / total, 1.0) * 0.2
-                        on_progress(f"Downloading Fish-Speech code... {int(frac * 500)}%", frac)
-
-                urllib.request.urlretrieve(FISH_CODE_URL, tmp_zip, reporthook=_hook)
-                if on_progress:
-                    on_progress("Extracting Fish-Speech code...", 0.22)
-
-                os.makedirs(code_dir, exist_ok=True)
-                with zipfile.ZipFile(tmp_zip, "r") as zf:
-                    for member in zf.infolist():
-                        parts = member.filename.split("/", 1)
-                        if len(parts) < 2 or not parts[1]:
-                            continue
-                        target = os.path.join(code_dir, parts[1])
-                        if member.is_dir():
-                            os.makedirs(target, exist_ok=True)
-                        else:
-                            os.makedirs(os.path.dirname(target), exist_ok=True)
-                            with zf.open(member) as src, open(target, "wb") as dst:
-                                dst.write(src.read())
-                try:
-                    os.remove(tmp_zip)
-                except OSError:
-                    pass
-                logger.info("Fish-Speech code extracted to %s", code_dir)
-            except Exception as exc:
-                logger.error("Fish-Speech code download failed: %s", exc)
-                return False
-
-    # --- Step 2: Model checkpoints ---
-    has_weights = (
-        os.path.isdir(ckpt_dir) and any(
-            f.endswith((".pth", ".bin", ".safetensors"))
-            for f in os.listdir(ckpt_dir)
-        )
-    ) if os.path.isdir(ckpt_dir) else False
-
-    if not has_weights:
-        try:
-            from huggingface_hub import snapshot_download
-        except ImportError:
-            logger.error("huggingface_hub not installed; cannot download checkpoints.")
-            return False
-
-        if on_progress:
-            on_progress(f"Downloading {ckpt_name} checkpoints (~1.5 GB)...", 0.25)
-        logger.info("Downloading checkpoints from HuggingFace: %s", hf_repo)
-
-        token_arg = hf_token.strip() if (needs_token and hf_token) else None
-        try:
-            snapshot_download(
-                repo_id=hf_repo,
-                local_dir=ckpt_dir,
-                ignore_patterns=["*.md", "*.txt"],
-                token=token_arg,
-            )
-            logger.info("Checkpoints downloaded to %s", ckpt_dir)
-        except Exception as exc:
-            logger.error("Checkpoint download failed for %s: %s", ckpt_name, exc)
-            return False
-
-    # --- Step 3 (OpenAudio only): install flash_attn if missing ---
-    # flash_attn provides 3-5x faster attention for S1/S1-Mini on CUDA.
-    # We attempt install automatically so users don't have to do it manually.
-    if is_openaudio and not is_flash_attn_installed():
-        try:
-            import torch as _torch
-            _has_cuda = _torch.cuda.is_available()
-        except Exception:
-            _has_cuda = False
-
-        if _has_cuda:
-            if on_progress:
-                on_progress("Installing flash-attn for faster S1 generation…", 0.92)
-
-            _fa_done  = threading.Event()
-            _fa_ok    = [False]
-
-            def _fa_complete(ok, _msg, _ev=_fa_done, _res=_fa_ok):
-                _res[0] = ok
-                _ev.set()
-
-            install_flash_attn(on_progress=on_progress, on_complete=_fa_complete)
-            _fa_done.wait(timeout=300)  # up to 5 min — wheel can be ~150 MB
-
-            if not _fa_ok[0]:
-                logger.warning(
-                    "flash-attn install failed; S1/S1-Mini will still work but generation "
-                    "will be slower. Install it manually later: pip install flash-attn"
-                )
-                # Don't return False — the engine itself is ready
-        else:
-            logger.info(
-                "Skipping flash-attn install for S1/S1-Mini (no CUDA). "
-                "Enable CUDA in Settings to use flash_attn."
-            )
-
-    if on_progress:
-        on_progress("Fish-Speech ready", 1.0)
-    return True
-
 
 
 
@@ -1122,3 +800,197 @@ def get_vram_usage() -> dict:
     except Exception:
         pass
     return None
+
+
+# ---------------------------------------------------------------------------
+# VoxCPM / OmniVoice install-on-demand helpers
+# ---------------------------------------------------------------------------
+
+# VoxCPM variants — each maps to a HuggingFace repo and its native sample rate.
+VOXCPM_VARIANTS = {
+    "0.5B": {"repo": "openbmb/VoxCPM-0.5B", "sample_rate": 16000, "display": "VoxCPM 0.5B (16 kHz, light)"},
+    "2B":   {"repo": "openbmb/VoxCPM2",     "sample_rate": 48000, "display": "VoxCPM 2B (48 kHz, top quality)"},
+}
+OMNIVOICE_REPO = "k2-fsa/OmniVoice"
+
+
+def is_package_installed(pkg: str) -> bool:
+    """Return True if the given pip package is importable (no side effects)."""
+    import importlib.util
+    try:
+        return importlib.util.find_spec(pkg) is not None
+    except Exception as exc:
+        logger.warning("is_package_installed(%s) failed: %s", pkg, exc)
+        return False
+
+
+def install_package(pkg: str, on_progress=None) -> bool:
+    """
+    Install a pip package as a subprocess using the current Python interpreter.
+
+    Streams stdout lines to on_progress(line, None) if provided. Progress fraction
+    is None because pip output isn't quantifiable.
+
+    Returns True on exit code 0, False otherwise.
+    """
+    cmd = [sys.executable, "-m", "pip", "install", pkg]
+    logger.info("Installing package: %s", " ".join(cmd))
+    try:
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = 0x08000000  # CREATE_NO_WINDOW
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            creationflags=creationflags,
+        )
+        for line in proc.stdout:
+            line = line.rstrip()
+            if on_progress:
+                on_progress(line, None)
+        proc.wait()
+        if proc.returncode == 0:
+            logger.info("Package %s installed successfully.", pkg)
+            return True
+        logger.error("Package %s install failed (code %d).", pkg, proc.returncode)
+        return False
+    except Exception as exc:
+        logger.error("install_package(%s) failed: %s", pkg, exc)
+        return False
+
+
+def is_voxcpm_installed() -> bool:
+    """Return True if the voxcpm pip package is importable."""
+    return is_package_installed("voxcpm")
+
+
+def is_omnivoice_installed() -> bool:
+    """Return True if the omnivoice pip package is importable."""
+    return is_package_installed("omnivoice")
+
+
+def hf_cache_has_model(repo_id: str) -> bool:
+    """
+    Return True if HuggingFace hub has the given repo cached locally.
+
+    Tries huggingface_hub.try_to_load_from_cache first; falls back to checking
+    for the ~/.cache/huggingface/hub/models--<org>--<name> directory so the
+    check still works before huggingface_hub is installed.
+    """
+    try:
+        from huggingface_hub import try_to_load_from_cache
+        from huggingface_hub.constants import HF_HUB_CACHE
+        # try_to_load_from_cache returns a path, None (not cached), or _CACHED_NO_EXIST
+        for candidate in ("config.json", "model.safetensors", "pytorch_model.bin"):
+            result = try_to_load_from_cache(repo_id=repo_id, filename=candidate)
+            if isinstance(result, str) and os.path.isfile(result):
+                return True
+        # Fall through to filesystem check using HF cache root
+        cache_root = HF_HUB_CACHE
+    except Exception:
+        cache_root = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+
+    try:
+        dir_name = "models--" + repo_id.replace("/", "--")
+        target = os.path.join(cache_root, dir_name)
+        return os.path.isdir(target)
+    except Exception as exc:
+        logger.warning("hf_cache_has_model(%s) fallback failed: %s", repo_id, exc)
+        return False
+
+
+def is_voxcpm_ready(variant: str) -> bool:
+    """Return True if voxcpm is installed AND the variant's weights are cached."""
+    cfg = VOXCPM_VARIANTS.get(variant)
+    if not cfg:
+        logger.warning("is_voxcpm_ready: unknown variant %r", variant)
+        return False
+    return is_voxcpm_installed() and hf_cache_has_model(cfg["repo"])
+
+
+def is_omnivoice_ready() -> bool:
+    """Return True if omnivoice is installed AND its weights are cached."""
+    return is_omnivoice_installed() and hf_cache_has_model(OMNIVOICE_REPO)
+
+
+def setup_voxcpm(variant: str, on_progress=None) -> bool:
+    """
+    Ensure the voxcpm package is installed and the variant weights are downloaded.
+
+    variant: "0.5B" or "2B"
+
+    Steps:
+      1. pip install voxcpm (if not installed)
+      2. Instantiate VoxCPM.from_pretrained(repo, load_denoiser=False) to trigger
+         HuggingFace cache download, then drop the instance.
+
+    on_progress(message, fraction) is called at key stages.
+    Returns True on full success.
+    """
+    cfg = VOXCPM_VARIANTS.get(variant)
+    if not cfg:
+        logger.error("setup_voxcpm: unknown variant %r", variant)
+        return False
+    repo = cfg["repo"]
+
+    if not is_voxcpm_installed():
+        if on_progress:
+            on_progress("Installing voxcpm package...", None)
+        if not install_package("voxcpm", on_progress=on_progress):
+            logger.error("setup_voxcpm: voxcpm package install failed.")
+            return False
+
+    if on_progress:
+        on_progress("Downloading model weights...", None)
+    try:
+        from voxcpm import VoxCPM
+        logger.info("Triggering VoxCPM weight download: %s", repo)
+        instance = VoxCPM.from_pretrained(repo, load_denoiser=False)
+        del instance
+    except Exception as exc:
+        logger.error("setup_voxcpm(%s) weight download failed: %s", variant, exc)
+        return False
+
+    if on_progress:
+        on_progress("Ready", 1.0)
+    logger.info("VoxCPM %s ready.", variant)
+    return True
+
+
+def setup_omnivoice(on_progress=None) -> bool:
+    """
+    Ensure the omnivoice package is installed and its weights are downloaded.
+
+    Steps:
+      1. pip install omnivoice (if not installed)
+      2. Instantiate OmniVoice.from_pretrained(OMNIVOICE_REPO, device_map="cpu")
+         to trigger HuggingFace cache download (CPU avoids CUDA alloc), then
+         drop the instance.
+
+    on_progress(message, fraction) is called at key stages.
+    Returns True on full success.
+    """
+    if not is_omnivoice_installed():
+        if on_progress:
+            on_progress("Installing omnivoice package...", None)
+        if not install_package("omnivoice", on_progress=on_progress):
+            logger.error("setup_omnivoice: omnivoice package install failed.")
+            return False
+
+    if on_progress:
+        on_progress("Downloading model weights...", None)
+    try:
+        from omnivoice import OmniVoice
+        logger.info("Triggering OmniVoice weight download: %s", OMNIVOICE_REPO)
+        instance = OmniVoice.from_pretrained(OMNIVOICE_REPO, device_map="cpu")
+        del instance
+    except Exception as exc:
+        logger.error("setup_omnivoice weight download failed: %s", exc)
+        return False
+
+    if on_progress:
+        on_progress("Ready", 1.0)
+    logger.info("OmniVoice ready.")
+    return True

@@ -14,7 +14,7 @@
 customtkinter==5.2.2
 tkinterdnd2==0.4.3
 
-# --- Kokoro TTS engine (default engine) ---
+# --- Kokoro TTS engine (default, always installed) ---
 # kokoro-onnx pulls in onnxruntime automatically.
 # misaki[en] provides English phonemization for Kokoro.
 kokoro-onnx==0.5.0
@@ -52,18 +52,16 @@ vaderSentiment==3.3.2
 psutil==5.9.8
 numpy>=2.0.2
 
-# --- Fish-Speech internal deps (pinned) ---
-hydra-core==1.3.2
-omegaconf==2.3.0
-pyrootutils==1.0.4
-loguru==0.7.3
-click==8.1.8
-tqdm==4.67.1
-tokenizers
-huggingface_hub==0.28.1
-transformers==4.40.1
-einops>=0.7.0
-einx==0.2.2
-descript-audio-codec>=1.0.0
-loralib>=0.1.2
-tiktoken>=0.8.0
+# --- HuggingFace hub (used for VoxCPM / OmniVoice install-on-demand) ---
+huggingface_hub>=0.28.1
+
+# --- Optional cloning engines (installed on first use via install-on-demand) ---
+# VoxCPM (0.5B / 2B) and OmniVoice are NOT pinned here — the app pip-installs
+# them the first time the user selects a non-Kokoro engine. Keeping them out
+# of this pinned list means:
+#   - Kokoro-only users don't download ~2 GB of unused model code
+#   - We can update them independently without re-pinning the rest
+#   - First install is a ~30-60s pip install + weight download from HF cache
+# Packages installed on demand:
+#   voxcpm        (pulls torch, transformers, diffusers)
+#   omnivoice     (pulls torch, transformers, safetensors)

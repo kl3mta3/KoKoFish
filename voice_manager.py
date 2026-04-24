@@ -24,7 +24,6 @@ class VoiceManager:
 
     Each voice profile is a subdirectory under voices_dir containing:
         - reference.wav  — the reference audio clip
-        - tokens.npy     — pre-computed VQ token indices (optional, cached)
         - meta.txt       — optional metadata (prompt text, description)
     """
 
@@ -56,7 +55,6 @@ class VoiceManager:
         Returns dict with keys:
             name:         str
             wav_path:     str — path to reference.wav
-            tokens_path:  str or None — path to tokens.npy (if pre-computed)
             prompt_text:  str — reference audio transcript (if available)
         """
         profile_dir = os.path.join(self.voices_dir, name)
@@ -64,10 +62,6 @@ class VoiceManager:
 
         if not os.path.isfile(ref_wav):
             return None
-
-        tokens_path = os.path.join(profile_dir, "tokens.npy")
-        if not os.path.isfile(tokens_path):
-            tokens_path = None
 
         prompt_text = ""
         meta_path = os.path.join(profile_dir, "meta.txt")
@@ -81,7 +75,6 @@ class VoiceManager:
         return {
             "name": name,
             "wav_path": ref_wav,
-            "tokens_path": tokens_path,
             "prompt_text": prompt_text,
         }
 
@@ -165,27 +158,6 @@ class VoiceManager:
             meta_path = os.path.join(profile_dir, "meta.txt")
             with open(meta_path, "w", encoding="utf-8") as f:
                 f.write(prompt_text)
-
-        # Pre-compute VQ tokens if TTS engine is available and loaded
-        if tts_engine is not None and tts_engine.is_loaded:
-            try:
-                tokens = tts_engine.encode_reference(dest_wav)
-                tokens_path = os.path.join(profile_dir, "tokens.npy")
-                np.save(tokens_path, tokens)
-                logger.info("Pre-computed VQ tokens: %s", tokens_path)
-                
-                # Tag the voice profile with the engine version that generated the tokens
-                # Since v1.4 and v1.5 math is fundamentally incompatible, we must separate them.
-                from settings import Settings
-                active_settings = Settings.load()
-                engine_sig = getattr(active_settings, 'engine', 'fish14')
-                with open(os.path.join(profile_dir, "engine.txt"), "w") as ef:
-                    ef.write(engine_sig)
-            except Exception as exc:
-                logger.warning(
-                    "Could not pre-compute tokens (will encode at runtime): %s",
-                    exc,
-                )
 
         logger.info("Voice profile created: %s", safe_name)
         return profile_dir

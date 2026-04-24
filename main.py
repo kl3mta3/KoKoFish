@@ -60,27 +60,8 @@ os.makedirs(os.path.join(APP_DIR, "bin"), exist_ok=True)
 from lang import t, load_language
 load_language()
 
-# ---------------------------------------------------------------------------
-# Ensure fish-speech is importable
-# ---------------------------------------------------------------------------
-import json as _json
-_settings_path = os.path.join(APP_DIR, "settings.json")
-# Default fallback: the original fish-speech folder (1.4 code lives here)
-FISH_SPEECH_DIR = os.path.join(APP_DIR, "fish-speech")
-if os.path.isfile(_settings_path):
-    try:
-        with open(_settings_path, "r", encoding="utf-8") as _f:
-            _sdata = _json.load(_f)
-            _saved_path = _sdata.get("fish_speech_path", "")
-            # Only use the saved path if the directory actually exists on disk
-            if _saved_path and os.path.isdir(_saved_path):
-                FISH_SPEECH_DIR = _saved_path
-    except Exception:
-        pass
-
-if os.path.isdir(FISH_SPEECH_DIR) and FISH_SPEECH_DIR not in sys.path:
-    sys.path.insert(0, FISH_SPEECH_DIR)
-logger.info("Fish-Speech framework loaded from: %s", FISH_SPEECH_DIR)
+# Fish-Speech is no longer bundled — VoxCPM and OmniVoice install on demand
+# via pip + HuggingFace cache. Nothing to put on sys.path here.
 
 # ---------------------------------------------------------------------------
 # Pre-flight dependency check
@@ -126,16 +107,41 @@ except ImportError:
 from settings import (
     Settings,
     detect_cuda,
-    get_bundled_fish_speech_path,
-    validate_fish_speech_path,
     get_device,
+    VALID_ENGINES,
+    engine_label,
 )
-from utils import setup_ffmpeg, setup_python_deps, is_kokoro_ready, setup_kokoro, is_fish_speech_ready, FISH_ENGINE_CONFIG
-from tts_engine import TTSEngine
+from utils import (
+    setup_ffmpeg,
+    setup_python_deps,
+    is_kokoro_ready,
+    setup_kokoro,
+    is_voxcpm_ready,
+    setup_voxcpm,
+    is_omnivoice_ready,
+    setup_omnivoice,
+    VOXCPM_VARIANTS,
+)
 from kokoro_engine import KokoroEngine
+from voxcpm_engine import VoxCPMEngine
+from omnivoice_engine import OmniVoiceEngine
 from stt_engine import STTEngine
 from voice_manager import VoiceManager
 from ui import KoKoFishUI, COLORS, FONT_FAMILY
+
+
+def _instantiate_engine(engine_id: str, use_cuda: bool):
+    """Factory: return a fresh engine instance for the given engine_id."""
+    if engine_id == "kokoro":
+        return KokoroEngine(use_cuda=use_cuda)
+    if engine_id == "voxcpm_05b":
+        return VoxCPMEngine(variant="0.5B", use_cuda=use_cuda)
+    if engine_id == "voxcpm_2b":
+        return VoxCPMEngine(variant="2B", use_cuda=use_cuda)
+    if engine_id == "omnivoice":
+        return OmniVoiceEngine(use_cuda=use_cuda)
+    logger.warning("Unknown engine_id %r — falling back to Kokoro.", engine_id)
+    return KokoroEngine(use_cuda=use_cuda)
 
 
 # ============================================================================
@@ -253,7 +259,7 @@ class KoKoFishApp:
             self.settings.llm_model = get_active_llm_key()
         except Exception:
             pass
-        self.tts: TTSEngine = None
+        self.tts = None
         self.stt: STTEngine = None
         self.voice_manager: VoiceManager = None
         self.ui: KoKoFishUI = None
@@ -410,46 +416,59 @@ class KoKoFishApp:
                 update_splash("Dependencies ready", 0.09)
 
                 _engine = getattr(self.settings, 'engine', 'kokoro')
+                if _engine not in VALID_ENGINES:
+                    logger.warning("Unknown engine %r in settings — resetting to kokoro.", _engine)
+                    _engine = 'kokoro'
+                    self.settings.engine = 'kokoro'
+                    self.settings.save()
+
+                _eng_label = engine_label(_engine)
 
                 # ── Engine model check / download ────────────────────────────
+                # Kokoro is always installed at first launch (it's the default).
+                # VoxCPM / OmniVoice install on first use — but if the user last
+                # picked one and the weights are still cached, we just load.
                 if _engine == 'kokoro':
                     if not is_kokoro_ready():
                         update_splash(t("MAIN_SPLASH_DOWNLOADING_KOKORO"), 0.10)
                         ok = setup_kokoro(on_progress=update_splash)
                         if ok:
-                            logger.info("Kokoro models downloaded successfully.")
                             update_splash(t("MAIN_SPLASH_KOKORO_DOWNLOADED"), 0.22)
                         else:
-                            logger.warning("Kokoro model download failed; engine may not load.")
                             update_splash(t("MAIN_SPLASH_KOKORO_FAILED"), 0.22)
                     else:
                         update_splash("Kokoro models found", 0.12)
-                        logger.info("Engine: Kokoro (models present)")
-                else:
-                    # OpenAudio engines (s1mini, s1) use fish-speech-latest; Fish14 uses fish-speech
-                    _code_dir  = "fish-speech-latest" if _engine in ("s1mini", "s1") else "fish-speech"
-                    _fs_path   = os.path.join(APP_DIR, _code_dir)
-                    _ckpt_name = FISH_ENGINE_CONFIG.get(_engine, FISH_ENGINE_CONFIG["fish14"])[0]
-                    _eng_labels = {"fish14": "Fish-Speech 1.4", "s1mini": "S1 Mini", "s1": "S1 Full"}
-                    _eng_label  = _eng_labels.get(_engine, _engine)
-                    update_splash(f"Checking {_eng_label} models…", 0.10)
-
-                    if is_fish_speech_ready(_engine):
-                        self.settings.fish_speech_path = _fs_path
-                        self.settings.checkpoint_name  = f"checkpoints/{_ckpt_name}"
-                        self.settings.save()
-                        update_splash(f"{_eng_label} models found", 0.18)
-                        logger.info("Engine: %s (checkpoints present)", _engine)
+                elif _engine in ("voxcpm_05b", "voxcpm_2b"):
+                    _variant = "0.5B" if _engine == "voxcpm_05b" else "2B"
+                    update_splash(f"Checking {_eng_label}…", 0.10)
+                    if not is_voxcpm_ready(_variant):
+                        update_splash(f"Installing {_eng_label}…", 0.12)
+                        ok = setup_voxcpm(_variant, on_progress=update_splash)
+                        if not ok:
+                            update_splash(f"{_eng_label} install failed — see log", 0.22)
+                            logger.warning("VoxCPM %s setup failed on startup.", _variant)
+                        else:
+                            update_splash(f"{_eng_label} ready", 0.22)
                     else:
-                        update_splash(f"{_eng_label} not downloaded — select in Settings to get it", 0.18)
-                        logger.info("Engine: %s — not yet downloaded (first-use download).", _engine)
+                        update_splash(f"{_eng_label} ready", 0.18)
+                elif _engine == 'omnivoice':
+                    update_splash(f"Checking {_eng_label}…", 0.10)
+                    if not is_omnivoice_ready():
+                        update_splash(f"Installing {_eng_label}…", 0.12)
+                        ok = setup_omnivoice(on_progress=update_splash)
+                        if not ok:
+                            update_splash(f"{_eng_label} install failed — see log", 0.22)
+                            logger.warning("OmniVoice setup failed on startup.")
+                        else:
+                            update_splash(f"{_eng_label} ready", 0.22)
+                    else:
+                        update_splash(f"{_eng_label} ready", 0.18)
 
                 # ── Voice folders ────────────────────────────────────────────
                 update_splash("Setting up voice folders…", 0.23)
-                for _subdir in ("kokoro", "fish14", "s1mini", "s1"):
+                for _subdir in VALID_ENGINES:
                     os.makedirs(os.path.join(VOICES_DIR, _subdir), exist_ok=True)
-                _eng = getattr(self.settings, 'engine', 'kokoro')
-                voices_subdir = os.path.join(VOICES_DIR, _eng)
+                voices_subdir = os.path.join(VOICES_DIR, _engine)
                 self.voice_manager = VoiceManager(voices_subdir)
                 update_splash("Voice profiles loaded", 0.27)
 
@@ -473,39 +492,27 @@ class KoKoFishApp:
                 _stt_pulse.join()
                 update_splash(t("MAIN_SPLASH_STT_READY"), 0.45)
 
-                # ── TTS engine (ONNX / Fish-Speech — can take several seconds) ─
-                _engine_type = getattr(self.settings, 'engine', 'fish14')
+                # ── TTS engine (can take several seconds) ─
+                _engine_type = getattr(self.settings, 'engine', 'kokoro')
                 if _engine_type == 'kokoro':
-                    update_splash(t("MAIN_SPLASH_LOADING_KOKORO"), 0.48)
-                    _tts_stop = threading.Event()
-                    _tts_pulse = threading.Thread(
-                        target=_pulse,
-                        args=(t("MAIN_SPLASH_LOADING_KOKORO"), 0.48, 0.62, _tts_stop),
-                        daemon=True,
-                    )
-                    _tts_pulse.start()
-                    self.tts = KokoroEngine(use_cuda=self.settings.use_cuda)
-                    _tts_stop.set()
-                    _tts_pulse.join()
-                    update_splash(t("MAIN_SPLASH_KOKORO_READY"), 0.63)
+                    _loading_msg = t("MAIN_SPLASH_LOADING_KOKORO")
+                    _ready_msg = t("MAIN_SPLASH_KOKORO_READY")
                 else:
-                    _tts_label = _eng_labels.get(_engine_type, "TTS")
-                    update_splash(t("MAIN_SPLASH_LOADING_ENGINE", engine_name=_tts_label), 0.48)
-                    _tts_stop = threading.Event()
-                    _tts_pulse = threading.Thread(
-                        target=_pulse,
-                        args=(t("MAIN_SPLASH_LOADING_ENGINE", engine_name=_tts_label), 0.48, 0.62, _tts_stop),
-                        daemon=True,
-                    )
-                    _tts_pulse.start()
-                    self.tts = TTSEngine(
-                        fish_speech_path=self.settings.fish_speech_path or get_bundled_fish_speech_path(),
-                        device=device,
-                        checkpoint_name=self.settings.checkpoint_name,
-                    )
-                    _tts_stop.set()
-                    _tts_pulse.join()
-                    update_splash(t("MAIN_SPLASH_ENGINE_READY", engine_name=_tts_label), 0.63)
+                    _tts_label = engine_label(_engine_type)
+                    _loading_msg = t("MAIN_SPLASH_LOADING_ENGINE", engine_name=_tts_label)
+                    _ready_msg = t("MAIN_SPLASH_ENGINE_READY", engine_name=_tts_label)
+                update_splash(_loading_msg, 0.48)
+                _tts_stop = threading.Event()
+                _tts_pulse = threading.Thread(
+                    target=_pulse,
+                    args=(_loading_msg, 0.48, 0.62, _tts_stop),
+                    daemon=True,
+                )
+                _tts_pulse.start()
+                self.tts = _instantiate_engine(_engine_type, self.settings.use_cuda)
+                _tts_stop.set()
+                _tts_pulse.join()
+                update_splash(_ready_msg, 0.63)
 
                 # ── AI features (llama-cpp-python + Qwen) ───────────────────
                 from tag_suggester import (
@@ -633,13 +640,17 @@ class KoKoFishApp:
 
         # Update engine status labels
         _active_engine = getattr(self.settings, 'engine', 'kokoro')
-        if _active_engine == 'kokoro' or is_fish_speech_ready(_active_engine):
+        _engine_ready = (
+            _active_engine == 'kokoro'
+            or (_active_engine == 'voxcpm_05b' and is_voxcpm_ready('0.5B'))
+            or (_active_engine == 'voxcpm_2b' and is_voxcpm_ready('2B'))
+            or (_active_engine == 'omnivoice' and is_omnivoice_ready())
+        )
+        if _engine_ready:
             self.ui.update_tts_status(t("MAIN_ENGINE_READY"), COLORS["success"])
         else:
-            _eng_labels = {"fish14": "Fish-Speech 1.4", "s1mini": "S1 Mini", "s1": "S1"}
-            _label = _eng_labels.get(_active_engine, _active_engine)
             self.ui.update_tts_status(
-                t("MAIN_ENGINE_NOT_DOWNLOADED", label=_label),
+                t("MAIN_ENGINE_NOT_DOWNLOADED", label=engine_label(_active_engine)),
                 COLORS["warning"],
             )
 

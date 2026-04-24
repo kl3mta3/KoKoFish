@@ -14,13 +14,18 @@ from lang import t
 
 logger = logging.getLogger("KoKoFish.settings")
 
+# Engine IDs persisted to settings.json.
+#   "kokoro"     — Kokoro ONNX (default, always installed)
+#   "voxcpm_05b" — VoxCPM 0.5B (16 kHz, low VRAM)
+#   "voxcpm_2b"  — VoxCPM 2B (48 kHz, top quality, 30 langs)
+#   "omnivoice"  — k2-fsa/OmniVoice (24 kHz, 600+ langs)
+VALID_ENGINES = ("kokoro", "voxcpm_05b", "voxcpm_2b", "omnivoice")
+
 # Default settings values
 DEFAULTS = {
-    "fish_speech_path": "",  # Auto-detected at startup
-    "checkpoint_name": "checkpoints/fish-speech-1.4",
-    "engine": "kokoro",     # "kokoro" | "fish14" | "s1mini" | "s1"
+    "engine": "kokoro",
     "kokoro_voice": "af_bella",  # Active Kokoro preset voice ID
-    "hf_token": "",         # HuggingFace access token (for gated S1 models)
+    "hf_token": "",         # HuggingFace access token (optional, for gated models)
     "use_cuda": False,
     "memory_saver": False,
     "silent_mode": False,
@@ -30,11 +35,6 @@ DEFAULTS = {
     "volume": 80,
     "cadence": 50,
     "window_geometry": "1280x800",
-    # TTS generation quality parameters
-    "tts_temperature": 0.7,
-    "tts_top_p": 0.7,
-    "tts_repetition_penalty": 1.2,
-    "tts_chunk_length": 150,
     # CPU thread limit (0 = use all cores)
     "cpu_threads": 0,
     # Active LLM model key (display name from LLM_MODELS in tag_suggester.py)
@@ -169,62 +169,27 @@ def get_device(settings: Settings) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Fish-Speech path validation
+# Engine metadata
 # ---------------------------------------------------------------------------
 
-def get_bundled_fish_speech_path() -> str:
-    """Return the path to the bundled fish-speech directory."""
-    return os.path.join(_get_app_dir(), "fish-speech")
+# Display label and category for each engine. Used by the Settings dropdown
+# and anywhere an engine name is rendered to the user.
+ENGINE_LABELS = {
+    "kokoro":     "Kokoro (fast, offline, 54 voices)",
+    "voxcpm_05b": "VoxCPM 0.5B (cloning, 16 kHz, low VRAM)",
+    "voxcpm_2b":  "VoxCPM 2B (cloning, 48 kHz, top quality)",
+    "omnivoice":  "OmniVoice (cloning, 600+ languages)",
+}
 
 
-def validate_fish_speech_path(path: str) -> dict:
-    """
-    Validate that a directory looks like a Fish-Speech repo.
-
-    Returns dict with:
-        valid: bool
-        message: str
-        details: dict of found/missing components
-    """
-    result = {
-        "valid": False,
-        "message": "",
-        "details": {}
-    }
-
-    if not path or not os.path.isdir(path):
-        result["message"] = t("SETTINGS_FISH_PATH_VALIDATE_MSG_NO_DIR")
-        return result
-
-    # Check for key directories
-    checks = {
-        "fish_speech_pkg": os.path.isdir(os.path.join(path, "fish_speech")),
-    }
-
-    # Support either v1.4.3 or v1.5 file structure
-    has_1_4_logic = os.path.isfile(os.path.join(path, "tools", "llama", "generate.py"))
-    has_1_5_logic = os.path.isfile(os.path.join(path, "fish_speech", "models", "text2semantic", "inference.py"))
-    
-    checks["inference_engine (1.4 or 1.5)"] = has_1_4_logic or has_1_5_logic
-
-    result["details"] = checks
-    missing = [k for k, v in checks.items() if not v]
-
-    if not missing:
-        result["valid"] = True
-        result["message"] = t("SETTINGS_FISH_PATH_VALIDATE_MSG_OK")
-    else:
-        result["message"] = t("SETTINGS_FISH_PATH_VALIDATE_MSG_MISSING", missing=', '.join(missing))
-
-    return result
+def engine_label(engine_id: str) -> str:
+    """Return the display label for an engine ID, or the ID itself if unknown."""
+    return ENGINE_LABELS.get(engine_id, engine_id)
 
 
-def find_checkpoints(fish_speech_path: str) -> list:
-    """List available checkpoint directories inside the Fish-Speech repo."""
-    ckpt_dir = os.path.join(fish_speech_path, "checkpoints")
-    if not os.path.isdir(ckpt_dir):
-        return []
-    return [
-        d for d in os.listdir(ckpt_dir)
-        if os.path.isdir(os.path.join(ckpt_dir, d))
-    ]
+def engine_id_from_label(label: str) -> str:
+    """Map a display label back to its engine ID (inverse of engine_label)."""
+    for eid, lbl in ENGINE_LABELS.items():
+        if lbl == label:
+            return eid
+    return "kokoro"
