@@ -23,10 +23,10 @@ SCRIPTS_DIR  = os.path.join(APP_DIR, "scripts")
 
 # Engine name → subfolder mapping so profiles stay separated
 _ENGINE_FOLDER = {
-    "kokoro":  "kokoro",
-    "fish14":  "fish",
-    "s1":      "fish",
-    "s1mini":  "fish",
+    "kokoro":     "kokoro",
+    "voxcpm_05b": "voxcpm_05b",
+    "voxcpm_2b":  "voxcpm_2b",
+    "omnivoice":  "omnivoice",
 }
 
 

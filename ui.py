@@ -210,6 +210,103 @@ class KoKoFishUI:
             daemon=True,
             name="TempCleanup",
         ).start()
+        self.root.after(800, self._check_triton_prompt)
+
+    def _check_triton_prompt(self):
+        """If the active engine benefits from triton and it's missing, offer to install."""
+        try:
+            engine_id = getattr(self.settings, "engine", "kokoro")
+            if engine_id not in ("voxcpm_05b", "voxcpm_2b", "omnivoice"):
+                return
+            if getattr(self.settings, "triton_declined", False):
+                return
+            from utils import is_triton_installed
+            if is_triton_installed():
+                return
+
+            install = messagebox.askyesno(
+                t("TRITON_PROMPT_TITLE"),
+                t("TRITON_PROMPT_BODY"),
+            )
+            if not install:
+                try:
+                    self.settings.triton_declined = True
+                    self.settings.save()
+                except Exception:
+                    pass
+                return
+            self._run_triton_install()
+        except Exception as exc:
+            logger.warning("Triton prompt check failed: %s", exc)
+
+    def _run_triton_install(self):
+        """Install triton in a thread, showing a modal progress popup."""
+        popup = ctk.CTkToplevel(self.root)
+        popup.title(t("TRITON_PROMPT_TITLE"))
+        popup.geometry("420x150")
+        popup.resizable(False, False)
+        popup.transient(self.root)
+        popup.grab_set()
+        popup.configure(fg_color=COLORS["bg_card"])
+        popup.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        self.root.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 210
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 75
+        popup.geometry(f"+{x}+{y}")
+
+        ctk.CTkLabel(
+            popup, text=t("TRITON_INSTALLING"),
+            font=(FONT_FAMILY, 14, "bold"), text_color=COLORS["text_primary"],
+        ).pack(pady=(18, 6))
+
+        pb = ctk.CTkProgressBar(
+            popup, progress_color=COLORS["accent"],
+            fg_color=COLORS["bg_input"], width=360, height=10, corner_radius=5,
+        )
+        pb.pack(pady=6, padx=20)
+        pb.configure(mode="indeterminate")
+        pb.start()
+
+        status = ctk.CTkLabel(
+            popup, text=t("COMMON_INITIALIZING"),
+            font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"],
+            wraplength=380, justify="center",
+        )
+        status.pack(pady=(6, 14), padx=15)
+
+        def _close():
+            try: pb.stop()
+            except Exception: pass
+            try:
+                popup.grab_release()
+                popup.destroy()
+            except Exception:
+                pass
+
+        def _on_progress(msg, _frac=None):
+            self.root.after(0, lambda m=msg: status.configure(text=str(m)[:120]))
+
+        def _worker():
+            try:
+                from utils import ensure_triton
+                ok = ensure_triton(on_progress=_on_progress)
+            except Exception as exc:
+                logger.warning("Triton install worker failed: %s", exc)
+                ok = False
+            def _done():
+                _close()
+                if ok:
+                    messagebox.showinfo(
+                        t("TRITON_PROMPT_TITLE"), t("TRITON_INSTALL_SUCCESS")
+                    )
+                else:
+                    messagebox.showwarning(
+                        t("TRITON_PROMPT_TITLE"), t("TRITON_INSTALL_FAILED")
+                    )
+            self.root.after(0, _done)
+
+        threading.Thread(target=_worker, daemon=True, name="TritonInstall").start()
 
     # ------------------------------------------------------------------
     # UI construction
@@ -3216,206 +3313,196 @@ class KoKoFishUI:
             justify="left",
         ).pack(anchor="w", padx=15, pady=(0, 6))
 
-        # ── Sub-tab container ──────────────────────────────────────────
-        sub_tabs = ctk.CTkTabview(
-            tab,
-            fg_color=COLORS["bg_card"],
-            segmented_button_selected_color=COLORS["accent"],
-            segmented_button_selected_hover_color=COLORS["accent_hover"],
-        )
-        sub_tabs.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        tab_design = sub_tabs.add("Voice Design")
-        tab_cloning = sub_tabs.add("Voice Cloning")
+        _engine = getattr(self.settings, "engine", "kokoro")
+        _has_design = _engine in ("voxcpm_05b", "voxcpm_2b")
 
-        # ── Voice Design tab ───────────────────────────────────────────
-        ctk.CTkLabel(
-            tab_design,
-            text="Kokoro preset voices (54). Select one and click Use to make it the default.",
-            font=(FONT_FAMILY, 11),
-            text_color=COLORS["text_muted"],
-            justify="left",
-        ).pack(anchor="w", padx=8, pady=(6, 6))
-
-        self._kokoro_voice_rows: dict[str, ctk.CTkFrame] = {}
-
-        design_scroll = ctk.CTkScrollableFrame(
-            tab_design,
-            fg_color=COLORS["bg_input"],
-            corner_radius=8,
-            scrollbar_button_color=COLORS["accent"],
-        )
-        design_scroll.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-
-        def _make_kokoro_row(display_name: str, voice_id: str):
-            lang = KOKORO_VOICE_LANG.get(voice_id, "")
-            is_active = (getattr(self.settings, "kokoro_voice", "") == voice_id)
-            row = ctk.CTkFrame(
-                design_scroll,
-                fg_color=COLORS["bg_card"],
-                border_color=COLORS["accent"] if is_active else COLORS["border"],
-                border_width=2 if is_active else 1,
-                corner_radius=8,
-                height=48,
-            )
-            row.pack(fill="x", padx=4, pady=3)
-            row.pack_propagate(False)
-
-            ctk.CTkLabel(
-                row,
-                text=f"{display_name}",
-                font=(FONT_FAMILY, 12, "bold"),
-                text_color=COLORS["text_primary"],
-                width=180,
-                anchor="w",
-            ).pack(side="left", padx=(12, 4))
-
-            ctk.CTkLabel(
-                row,
-                text=voice_id,
-                font=(FONT_FAMILY, 11),
-                text_color=COLORS["text_muted"],
-                width=110,
-                anchor="w",
-            ).pack(side="left", padx=(0, 4))
-
-            ctk.CTkLabel(
-                row,
-                text=lang,
-                font=(FONT_FAMILY, 11),
-                text_color=COLORS["text_secondary"],
-                width=140,
-                anchor="w",
-            ).pack(side="left", padx=(0, 8))
-
-            ctk.CTkButton(
-                row,
-                text="Use as Default",
-                width=120,
-                height=28,
-                corner_radius=6,
-                fg_color=COLORS["accent"],
-                hover_color=COLORS["accent_hover"],
-                font=(FONT_FAMILY, 11, "bold"),
-                command=lambda vid=voice_id: self._set_kokoro_default(vid),
-            ).pack(side="right", padx=(4, 8))
-
-            ctk.CTkButton(
-                row,
-                text="Preview",
-                width=80,
-                height=28,
-                corner_radius=6,
+        if _has_design:
+            self._voice_lab_tabview = ctk.CTkTabview(
+                tab,
                 fg_color=COLORS["bg_input"],
-                hover_color=COLORS["bg_card_hover"],
-                border_color=COLORS["border"],
-                border_width=1,
-                font=(FONT_FAMILY, 11),
-                command=lambda vid=voice_id: self._preview_kokoro_voice(vid),
-            ).pack(side="right", padx=(4, 0))
-
-            self._kokoro_voice_rows[voice_id] = row
-
-        for _display, _vid in KOKORO_VOICES.items():
-            _make_kokoro_row(_display, _vid)
-
-        # ── Voice Cloning tab ──────────────────────────────────────────
-        if getattr(self.settings, "engine", "") == "kokoro":
-            banner = ctk.CTkFrame(
-                tab_cloning,
-                fg_color=COLORS["bg_card"],
-                border_color=COLORS["warning"],
-                border_width=1,
-                corner_radius=8,
+                segmented_button_fg_color=COLORS["bg_card"],
+                segmented_button_selected_color=COLORS["accent"],
+                segmented_button_selected_hover_color=COLORS["accent_hover"],
             )
-            banner.pack(fill="x", padx=8, pady=(6, 4))
-            ctk.CTkLabel(
-                banner,
-                text="Switch to VoxCPM or OmniVoice in Settings to use cloned voices.",
-                font=(FONT_FAMILY, 11, "bold"),
-                text_color=COLORS["warning"],
-            ).pack(anchor="w", padx=10, pady=6)
+            self._voice_lab_tabview.pack(fill="both", expand=True, padx=15, pady=(0, 10))
+            tab_design = self._voice_lab_tabview.add(t("VOICE_LAB_TAB_DESIGN"))
+            tab_clone = self._voice_lab_tabview.add(t("VOICE_LAB_TAB_CLONE"))
+
+            self._build_mic_recorder_card(tab_clone)
+            self.voice_grid_frame = ctk.CTkScrollableFrame(
+                tab_clone, fg_color=COLORS["bg_card"],
+                corner_radius=8, scrollbar_button_color=COLORS["accent"],
+            )
+            self.voice_grid_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+            self._refresh_voice_grid()
+
+            self._build_voice_design_card(tab_design)
+        else:
+            self._build_mic_recorder_card(tab)
+            self.voice_grid_frame = ctk.CTkScrollableFrame(
+                tab, fg_color=COLORS["bg_input"],
+                corner_radius=8, scrollbar_button_color=COLORS["accent"],
+            )
+            self.voice_grid_frame.pack(fill="both", expand=True, padx=15, pady=(0, 10))
+            self._refresh_voice_grid()
+
+    def _build_voice_design_card(self, parent):
+        """Build the Design sub-tab for VoxCPM engines: generate a novel voice via text prompt."""
+        self._design_last_wav = None
+        self._design_last_text = ""
+
+        wrap = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=8)
+        wrap.pack(fill="both", expand=True, padx=10, pady=10)
 
         ctk.CTkLabel(
-            tab_cloning,
-            text="Clone voices from reference audio. Requires VoxCPM or OmniVoice (not Kokoro).",
-            font=(FONT_FAMILY, 11),
-            text_color=COLORS["text_muted"],
-            justify="left",
-        ).pack(anchor="w", padx=8, pady=(6, 6))
+            wrap, text=t("VOICE_DESIGN_INTRO"),
+            font=(FONT_FAMILY, 12), text_color=COLORS["text_muted"],
+            wraplength=760, justify="left",
+        ).pack(anchor="w", padx=12, pady=(12, 8))
 
-        # Mic recorder card
-        self._build_mic_recorder_card(tab_cloning)
-
-        # Voice grid (scrollable)
-        self.voice_grid_frame = ctk.CTkScrollableFrame(
-            tab_cloning,
-            fg_color=COLORS["bg_input"],
-            corner_radius=8,
-            scrollbar_button_color=COLORS["accent"],
+        ctk.CTkLabel(
+            wrap, text=t("VOICE_DESIGN_SAMPLE_TEXT_LABEL"),
+            font=(FONT_FAMILY, 12, "bold"), text_color=COLORS["text_primary"],
+        ).pack(anchor="w", padx=12, pady=(6, 2))
+        self._design_textbox = ctk.CTkTextbox(
+            wrap, height=90, fg_color=COLORS["bg_input"],
+            text_color=COLORS["text_primary"], border_color=COLORS["border"],
+            border_width=1, corner_radius=6,
         )
-        self.voice_grid_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self._design_textbox.pack(fill="x", padx=12, pady=(0, 10))
+        self._design_textbox.insert("1.0", t("VOICE_DESIGN_SAMPLE_TEXT_DEFAULT"))
 
-        self._refresh_voice_grid()
+        ctk.CTkLabel(
+            wrap, text=t("VOICE_DESIGN_NAME_LABEL"),
+            font=(FONT_FAMILY, 12, "bold"), text_color=COLORS["text_primary"],
+        ).pack(anchor="w", padx=12, pady=(4, 2))
+        self._design_name_entry = ctk.CTkEntry(
+            wrap, fg_color=COLORS["bg_input"],
+            text_color=COLORS["text_primary"], border_color=COLORS["border"],
+            border_width=1, corner_radius=6,
+            placeholder_text=t("VOICE_DESIGN_NAME_PLACEHOLDER"),
+        )
+        self._design_name_entry.pack(fill="x", padx=12, pady=(0, 12))
 
-    def _set_kokoro_default(self, voice_id: str):
-        """Set the active Kokoro preset voice and refresh row highlights."""
-        self.settings.kokoro_voice = voice_id
-        self.settings.default_voice = voice_id
-        try:
-            self.settings.save()
-        except Exception as exc:
-            logger.warning("Failed to save settings: %s", exc)
-        # Refresh row styling
-        rows = getattr(self, "_kokoro_voice_rows", {})
-        for vid, row in rows.items():
-            active = (vid == voice_id)
-            try:
-                row.configure(
-                    border_color=COLORS["accent"] if active else COLORS["border"],
-                    border_width=2 if active else 1,
+        btn_row = ctk.CTkFrame(wrap, fg_color="transparent")
+        btn_row.pack(fill="x", padx=12, pady=(0, 10))
+
+        self._design_btn_gen = ctk.CTkButton(
+            btn_row, text=t("VOICE_DESIGN_BTN_GENERATE"),
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            font=(FONT_FAMILY, 13, "bold"), height=36, width=170,
+            command=self._voice_design_generate,
+        )
+        self._design_btn_gen.pack(side="left", padx=(0, 8))
+
+        self._design_btn_save = ctk.CTkButton(
+            btn_row, text=t("VOICE_DESIGN_BTN_SAVE"),
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            border_color=COLORS["border"], border_width=1,
+            font=(FONT_FAMILY, 13), height=36, width=150,
+            state="disabled",
+            command=self._voice_design_save,
+        )
+        self._design_btn_save.pack(side="left")
+
+        self._design_status = ctk.CTkLabel(
+            wrap, text=t("VOICE_DESIGN_STATUS_IDLE"),
+            font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"],
+        )
+        self._design_status.pack(anchor="w", padx=12, pady=(6, 12))
+
+    def _voice_design_generate(self):
+        """Generate a novel VoxCPM voice sample (no reference audio)."""
+        import sounddevice as sd
+        import soundfile as sf
+        import tempfile as _tf
+
+        if not getattr(self, "tts", None) or not self.tts.is_loaded:
+            messagebox.showwarning(
+                t("COMMON_ERROR"), t("VOICE_DESIGN_MSG_ENGINE_NOT_LOADED")
+            )
+            return
+
+        text = self._design_textbox.get("1.0", "end").strip()
+        if not text:
+            messagebox.showwarning(t("COMMON_ERROR"), t("VOICE_DESIGN_MSG_NO_TEXT"))
+            return
+
+        self._design_btn_gen.configure(state="disabled")
+        self._design_btn_save.configure(state="disabled")
+        self._design_status.configure(
+            text=t("VOICE_DESIGN_STATUS_GENERATING"), text_color=COLORS["warning"]
+        )
+
+        tmp_dir = os.path.join(_APP_DIR, "temp", "audio") if '_APP_DIR' in globals() \
+            else os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp", "audio")
+        os.makedirs(tmp_dir, exist_ok=True)
+        out_path = os.path.join(tmp_dir, f"design_{int(time.time())}.wav")
+
+        def on_complete(path):
+            def _ui():
+                try:
+                    data, sr = sf.read(path, dtype="float32")
+                    sd.play(data, sr)
+                except Exception as exc:
+                    logger.warning("Design preview playback failed: %s", exc)
+                self._design_last_wav = path
+                self._design_last_text = text
+                self._design_btn_gen.configure(state="normal")
+                self._design_btn_save.configure(state="normal")
+                self._design_status.configure(
+                    text=t("VOICE_DESIGN_STATUS_READY"), text_color=COLORS["success"]
                 )
-            except Exception:
-                pass
+            self.root.after(0, _ui)
 
-    def _preview_kokoro_voice(self, voice_id: str):
-        """Generate a short sample with the given Kokoro voice."""
-        from tkinter import messagebox
-        if getattr(self.settings, "engine", "") != "kokoro":
-            messagebox.showinfo(
-                "Preview unavailable",
-                "Switch the active engine to Kokoro in Settings to preview preset voices.",
+        def on_error(exc):
+            def _ui():
+                self._design_btn_gen.configure(state="normal")
+                self._design_status.configure(
+                    text=t("VOICE_DESIGN_STATUS_FAILED"), text_color=COLORS["danger"]
+                )
+                messagebox.showerror(t("COMMON_ERROR"), str(exc))
+            self.root.after(0, _ui)
+
+        self.tts.generate(
+            text=text,
+            reference_wav=None,
+            prompt_text=None,
+            output_path=out_path,
+            on_complete=on_complete,
+            on_error=on_error,
+        )
+
+    def _voice_design_save(self):
+        """Save the last-generated design wav as a voice profile."""
+        if not self._design_last_wav or not os.path.isfile(self._design_last_wav):
+            messagebox.showwarning(
+                t("COMMON_ERROR"), t("VOICE_DESIGN_MSG_NOTHING_TO_SAVE")
             )
             return
-        if not self.tts or not getattr(self.tts, "is_loaded", False):
-            messagebox.showinfo(
-                "Preview unavailable",
-                "Kokoro engine is not loaded yet. Open the Speech Lab tab or wait for startup to finish.",
-            )
+        name = self._design_name_entry.get().strip()
+        if not name:
+            messagebox.showwarning(t("COMMON_ERROR"), t("VOICE_DESIGN_MSG_NAME_REQUIRED"))
             return
-
-        def _on_complete(wav_path):
-            try:
-                import sounddevice as sd
-                import soundfile as sf
-                data, sr = sf.read(wav_path, dtype="float32")
-                sd.play(data, sr)
-            except Exception as exc:
-                logger.warning("Kokoro preview playback failed: %s", exc)
-
-        def _on_error(exc):
-            logger.error("Kokoro preview generation failed: %s", exc)
 
         try:
-            self.tts.generate(
-                text="The quick brown fox jumps over the lazy dog.",
-                voice_id=voice_id,
-                on_complete=_on_complete,
-                on_error=_on_error,
+            self.voices.clone_voice(
+                name=name,
+                reference_wav_path=self._design_last_wav,
+                prompt_text=self._design_last_text,
             )
-            logger.info("Kokoro preview requested: %s", voice_id)
         except Exception as exc:
-            logger.error("Kokoro preview failed to start: %s", exc)
-            messagebox.showinfo("Preview", f"Could not start preview: {exc}")
+            logger.error("Voice design save failed: %s", exc, exc_info=True)
+            messagebox.showerror(t("COMMON_ERROR"), str(exc))
+            return
+
+        self._design_status.configure(
+            text=t("VOICE_DESIGN_STATUS_SAVED", name=name),
+            text_color=COLORS["success"],
+        )
+        self._design_btn_save.configure(state="disabled")
+        self._design_name_entry.delete(0, "end")
+        self._refresh_voice_grid()
 
     def _build_mic_recorder_card(self, parent):
         """Build the microphone recording section for voice cloning."""
@@ -5389,6 +5476,39 @@ class KoKoFishUI:
             font=(FONT_FAMILY, 13),
             text_color=COLORS["warning"],
         ).pack(side="left", padx=15, pady=12)
+
+        # torch.compile toggle (opt-in, advanced)
+        compile_row = setting_row(main)
+        ctk.CTkLabel(
+            compile_row,
+            text=t("SETTINGS_TORCH_COMPILE_LABEL"),
+            font=(FONT_FAMILY, 13),
+            text_color=COLORS["text_primary"],
+        ).pack(side="left", padx=15, pady=12)
+
+        self.torch_compile_var = ctk.BooleanVar(
+            value=getattr(self.settings, "torch_compile_enabled", False)
+        )
+        self.torch_compile_switch = ctk.CTkSwitch(
+            compile_row,
+            text="",
+            variable=self.torch_compile_var,
+            onvalue=True,
+            offvalue=False,
+            progress_color=COLORS["success"],
+            command=self._on_torch_compile_toggle,
+        )
+        self.torch_compile_switch.pack(side="right", padx=15, pady=12)
+
+        compile_note_row = setting_row(main)
+        ctk.CTkLabel(
+            compile_note_row,
+            text=t("SETTINGS_TORCH_COMPILE_NOTE"),
+            font=(FONT_FAMILY, 11),
+            text_color=COLORS["text_muted"],
+            wraplength=560,
+            justify="left",
+        ).pack(side="left", padx=15, pady=8)
 
 
         # Memory saver
@@ -8249,6 +8369,17 @@ class KoKoFishUI:
     # EVENT HANDLERS — Settings
     # ==================================================================
 
+    def _on_torch_compile_toggle(self):
+        """Persist torch.compile preference and prompt for restart (applies at startup)."""
+        new_val = bool(self.torch_compile_var.get())
+        self.settings.torch_compile_enabled = new_val
+        self.settings.save()
+        if new_val:
+            msg = t("SETTINGS_TORCH_COMPILE_ENABLED_MSG")
+        else:
+            msg = t("SETTINGS_TORCH_COMPILE_DISABLED_MSG")
+        messagebox.showinfo(t("SETTINGS_TORCH_COMPILE_LABEL"), msg)
+
     def _on_cuda_toggle(self):
         """Handle CUDA toggle — download CUDA PyTorch on demand."""
         wants_cuda = self.cuda_var.get()
@@ -8435,9 +8566,6 @@ class KoKoFishUI:
             self.settings.save()
             self._update_engine_dropdown()
 
-        def _on_progress(msg, _frac=None):
-            self.root.after(0, lambda m=msg: self.update_tts_status(f"⬇ {m}", COLORS["warning"]))
-
         def _prompt_restart():
             confirm = messagebox.askyesno(
                 t("SETTINGS_RESTART_REQUIRED_TITLE"),
@@ -8450,6 +8578,69 @@ class KoKoFishUI:
                 self._update_engine_dropdown()
 
         def _run_install(install_fn, ready_msg):
+            popup = ctk.CTkToplevel(self.root)
+            popup.title(t("SETTINGS_DOWNLOAD_REQUIRED_TITLE"))
+            popup.geometry("420x170")
+            popup.resizable(False, False)
+            popup.transient(self.root)
+            popup.grab_set()
+            popup.configure(fg_color=COLORS["bg_card"])
+            popup.protocol("WM_DELETE_WINDOW", lambda: None)
+
+            self.root.update_idletasks()
+            x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 210
+            y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 85
+            popup.geometry(f"+{x}+{y}")
+
+            header = ctk.CTkLabel(
+                popup,
+                text=t("SETTINGS_DOWNLOADING_HEADER", engine=new_val),
+                font=(FONT_FAMILY, 14, "bold"),
+                text_color=COLORS["text_primary"],
+            )
+            header.pack(pady=(20, 8))
+
+            pb = ctk.CTkProgressBar(
+                popup, progress_color=COLORS["accent"],
+                fg_color=COLORS["bg_input"], width=360, height=10, corner_radius=5,
+            )
+            pb.pack(pady=6, padx=20)
+            pb.set(0)
+            pb.configure(mode="indeterminate")
+            pb.start()
+
+            status = ctk.CTkLabel(
+                popup, text=t("COMMON_INITIALIZING"),
+                font=(FONT_FAMILY, 11), text_color=COLORS["text_muted"],
+                wraplength=380, justify="center",
+            )
+            status.pack(pady=(6, 14), padx=15)
+
+            def _on_progress(msg, frac=None):
+                def _apply():
+                    try:
+                        status.configure(text=str(msg))
+                        if isinstance(frac, (int, float)) and 0.0 <= float(frac) <= 1.0:
+                            pb.stop()
+                            pb.configure(mode="determinate")
+                            pb.set(float(frac))
+                    except Exception:
+                        pass
+                self.root.after(0, _apply)
+
+            self._engine_install_progress = _on_progress
+
+            def _close_popup():
+                try:
+                    pb.stop()
+                except Exception:
+                    pass
+                try:
+                    popup.grab_release()
+                    popup.destroy()
+                except Exception:
+                    pass
+
             def _worker():
                 try:
                     ok = install_fn()
@@ -8457,17 +8648,31 @@ class KoKoFishUI:
                     logger.warning("Engine install failed: %s", exc)
                     ok = False
                 if ok:
-                    _commit()
-                    self.root.after(0, lambda: self.update_tts_status(
-                        ready_msg, COLORS["success"]
-                    ))
-                    self.root.after(1500, self._restart_app)
+                    def _done():
+                        _close_popup()
+                        _commit()
+                        self.update_tts_status(ready_msg, COLORS["success"])
+                        self.root.after(1200, self._restart_app)
+                    self.root.after(0, _done)
                 else:
-                    self.root.after(0, lambda: self.update_tts_status(
-                        t("SETTINGS_DOWNLOAD_FAILED"), COLORS["danger"]
-                    ))
-                    self.root.after(0, _revert)
+                    def _fail():
+                        _close_popup()
+                        self.update_tts_status(
+                            t("SETTINGS_DOWNLOAD_FAILED"), COLORS["danger"]
+                        )
+                        messagebox.showerror(
+                            t("COMMON_ERROR"), t("SETTINGS_DOWNLOAD_FAILED")
+                        )
+                        _revert()
+                    self.root.after(0, _fail)
             threading.Thread(target=_worker, daemon=True, name="EngineInstall").start()
+
+        def _on_progress(msg, frac=None):
+            cb = getattr(self, "_engine_install_progress", None)
+            if cb:
+                cb(msg, frac)
+            else:
+                self.root.after(0, lambda m=msg: self.update_tts_status(f"⬇ {m}", COLORS["warning"]))
 
         # Kokoro
         if new_engine == "kokoro":
@@ -8493,20 +8698,16 @@ class KoKoFishUI:
             variant = "0.5B" if new_engine == "voxcpm_05b" else "2B"
             if not is_voxcpm_ready(variant):
                 size_txt = "~1 GB" if variant == "0.5B" else "~4 GB"
-                body = (
-                    f"Download VoxCPM {variant} ({size_txt})? "
-                    "This will install the voxcpm package and download model weights."
-                )
                 download = messagebox.askyesno(
                     t("SETTINGS_DOWNLOAD_REQUIRED_TITLE"),
-                    body,
+                    t("SETTINGS_VOXCPM_DOWNLOAD_BODY", variant=variant, size=size_txt),
                 )
                 if not download:
                     _revert()
                     return
                 _run_install(
                     lambda v=variant: setup_voxcpm(v, on_progress=_on_progress),
-                    f"VoxCPM {variant} ready. Restarting…",
+                    t("SETTINGS_VOXCPM_DOWNLOAD_READY", variant=variant),
                 )
                 return
             _prompt_restart()
@@ -8516,20 +8717,16 @@ class KoKoFishUI:
         if new_engine == "omnivoice":
             from utils import is_omnivoice_ready, setup_omnivoice
             if not is_omnivoice_ready():
-                body = (
-                    "Download OmniVoice (~2 GB)? "
-                    "This will install the omnivoice package and download model weights."
-                )
                 download = messagebox.askyesno(
                     t("SETTINGS_DOWNLOAD_REQUIRED_TITLE"),
-                    body,
+                    t("SETTINGS_OMNIVOICE_DOWNLOAD_BODY"),
                 )
                 if not download:
                     _revert()
                     return
                 _run_install(
                     lambda: setup_omnivoice(on_progress=_on_progress),
-                    "OmniVoice ready. Restarting…",
+                    t("SETTINGS_OMNIVOICE_DOWNLOAD_READY"),
                 )
                 return
             _prompt_restart()

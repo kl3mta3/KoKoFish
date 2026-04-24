@@ -39,6 +39,11 @@ DEFAULTS = {
     "cpu_threads": 0,
     # Active LLM model key (display name from LLM_MODELS in tag_suggester.py)
     "llm_model": "",
+    # User dismissed the triton install prompt — don't re-prompt.
+    "triton_declined": False,
+    # Opt-in torch.compile / TorchDynamo (3-10x faster inference after first
+    # run, but first launch compiles kernels for ~10 min).
+    "torch_compile_enabled": False,
 }
 
 

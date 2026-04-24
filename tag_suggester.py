@@ -1068,11 +1068,22 @@ _PROMPTS: dict = {
     "script_kokoro":  _script_kokoro_prompt,
     "script_fish":    _script_fish_prompt,
     "translate":  (
-        "You are a professional translator. "
-        "If the text is already written in {target_language}, return it unchanged. "
-        "Otherwise translate it to {target_language}{tone_clause}. "
-        "Output ONLY the result — no explanations, no labels. "
-        "Keep tags like (laugh) or [whisper] exactly as-is."
+        "You are a translation engine. Your ONLY function is to translate the user's text to {target_language}{tone_clause}.\n"
+        "\n"
+        "STRICT RULES:\n"
+        "1. Output ONLY the translation. Nothing else.\n"
+        "2. NEVER explain, comment, summarize, or give opinions about the text.\n"
+        "3. NEVER add introductions like 'Here is the translation:' or 'Translation:'.\n"
+        "4. NEVER add notes, disclaimers, or quotation marks around the output.\n"
+        "5. Preserve proper nouns, names, and made-up words exactly.\n"
+        "6. Keep tags like (laugh) or [whisper] unchanged.\n"
+        "7. If the input is already in {target_language}, output it unchanged byte-for-byte.\n"
+        "\n"
+        "Example (target=Spanish):\n"
+        "Input: The ship moved through the dark.\n"
+        "Output: La nave se movía a través de la oscuridad.\n"
+        "\n"
+        "Do NOT deviate from this behavior. Translate the next message."
     ),
 }
 
@@ -1134,14 +1145,14 @@ TONE_OPTIONS = [
 
 def enhance_for_tts(
     text: str,
-    engine: str = "fish14",
+    engine: str = "kokoro",
     content_style: str = "None",
     on_progress: Optional[Callable[[str, float], None]] = None,
 ) -> str:
     """
     Use Qwen 0.5B to improve text for natural TTS delivery.
 
-    engine: "kokoro" | "fish14" | "s1mini" | "s1"
+    engine: "kokoro" | "voxcpm_05b" | "voxcpm_2b" | "omnivoice"
     content_style: optional hint appended to the system prompt
                    (e.g. "Podcast", "Story — Fiction", "Formal")
     """
@@ -1150,13 +1161,15 @@ def enhance_for_tts(
     if not is_qwen_model_ready():
         raise RuntimeError("LLM model not ready.")
 
+    # VoxCPM and OmniVoice read plain text (no inline tag grammar), so route
+    # them through the Kokoro enhancement prompt which also produces plain text.
     _key_map = {
-        "kokoro": "kokoro_af",
-        "s1mini": "s1mini_af",
-        "s1":     "s1_af",
-        "fish14": "fish14_af",
+        "kokoro":     "kokoro_af",
+        "voxcpm_05b": "kokoro_af",
+        "voxcpm_2b":  "kokoro_af",
+        "omnivoice":  "kokoro_af",
     }
-    system_prompt = _PROMPTS.get(_key_map.get(engine, "fish14_af"), _PROMPTS["fish14_af"])
+    system_prompt = _PROMPTS.get(_key_map.get(engine, "kokoro_af"), _PROMPTS["kokoro_af"])
     if content_style and content_style not in ("None", ""):
         system_prompt += f"\nContent style context: {content_style}. Keep formatting choices appropriate to this style."
 
@@ -1266,6 +1279,33 @@ def translate_for_voice(
                 if not result:
                     logger.warning("translate_for_voice: empty result, keeping original chunk")
                     result = chunk
+                else:
+                    # Strip common LLM prefixes the tiny model likes to add.
+                    _stripped = result.strip()
+                    for _prefix in (
+                        "Here is the translation:", "Here's the translation:",
+                        "Translation:", "Translated text:", "Output:",
+                        f"Here is the {target_language} translation:",
+                        f"In {target_language}:",
+                    ):
+                        if _stripped.lower().startswith(_prefix.lower()):
+                            _stripped = _stripped[len(_prefix):].lstrip(" :\n\"'")
+                    # Drift detection: opinion/commentary markers on small models.
+                    _drift_markers = (
+                        "this text", "the text", "the passage", "the author",
+                        "this passage", "in this", "the narrator",
+                        "the story", "it seems", "i think", "in my opinion",
+                        "the writer", "este texto", "el texto",
+                    )
+                    _head = _stripped.lower().lstrip(" \n\"'")[:40]
+                    if any(_head.startswith(m) for m in _drift_markers):
+                        logger.warning("translate_for_voice: drift detected (%.60r) — keeping original chunk.", _head)
+                        _stripped = chunk
+                    # Output/input length sanity (translations within 0.3x–3x of source).
+                    elif len(_stripped) < len(chunk) * 0.3 or len(_stripped) > len(chunk) * 3.5:
+                        logger.warning("translate_for_voice: suspicious length ratio — keeping original chunk.")
+                        _stripped = chunk
+                    result = _stripped
             except Exception as exc:
                 logger.warning("translate_for_voice chunk failed: %s", exc)
                 result = chunk

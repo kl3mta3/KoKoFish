@@ -10,13 +10,33 @@ import sys
 import threading
 import time
 
-# Reduce VRAM fragmentation. expandable_segments requires CUDA 11.8+; use
-# cudaMallocAsync (available since CUDA 11.4) as a safer cross-version option.
-os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "backend:cudaMallocAsync")
+# Reduce VRAM fragmentation. The native caching allocator + expandable_segments
+# is compatible with torch.compile / Triton; `cudaMallocAsync` is NOT (it lacks
+# checkPoolLiveAllocations and blows up during graph capture).
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 # Prevent huggingface_hub from storing/reading tokens via Windows Credential
 # Manager (keyring). The HF token is stored in settings.json instead.
 os.environ["HF_HUB_DISABLE_CREDENTIAL_STORAGE"] = "1"
+
+# torch.compile / TorchDynamo is opt-in. When disabled (default), we set the
+# env vars before torch is imported so VoxCPM / OmniVoice skip the compile
+# path entirely — avoiding the 10-min first-run compile and the compiler
+# subprocess storm on Windows without a full build toolchain. MUST be set
+# before torch is imported anywhere.
+try:
+    import json as _json
+    _settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+    if os.path.isfile(_settings_path):
+        with open(_settings_path, "r", encoding="utf-8") as _sf:
+            _compile_on = bool(_json.load(_sf).get("torch_compile_enabled", False))
+    else:
+        _compile_on = False
+except Exception:
+    _compile_on = False
+if not _compile_on:
+    os.environ["TORCHDYNAMO_DISABLE"] = "1"
+    os.environ["TORCH_COMPILE_DISABLE"] = "1"
 
 # ---------------------------------------------------------------------------
 # Logging setup — do this first before any other imports

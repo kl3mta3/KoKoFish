@@ -278,31 +278,29 @@ def setup_kokoro(on_progress=None) -> bool:
 # Text normalization
 # ---------------------------------------------------------------------------
 
-# Emotion/prosody tags Fish Speech understands — preserve these for Fish, strip for Kokoro
-_FISH_EMOTION_TAGS = re.compile(
+# Inline tags some engines historically understood. Stripped for all current
+# engines (Kokoro, VoxCPM, OmniVoice) since none of them parse these grammars.
+_EMOTION_TAGS = re.compile(
     r'\((?:excited|happy|sad|angry|surprised|confused|nervous|confident|'
     r'satisfied|fearful|whisper|laughing|crying|shouting|serious|gentle)\)',
     re.IGNORECASE,
 )
-_FISH_BRACKET_TAGS = re.compile(r'\[[^\]]{1,40}\]')
+_BRACKET_TAGS = re.compile(r'\[[^\]]{1,40}\]')
 
 
-def normalize_text(text: str, engine: str = "fish") -> str:
+def normalize_text(text: str, engine: str = "kokoro") -> str:
     """
     Normalize text before TTS to improve pronunciation and quality.
 
-    engine: "fish" / "fish14" / "s1mini" / "s1" — preserve Fish Speech tags
-            "kokoro" — strip all inline tags (Kokoro reads plain text only)
+    engine: "kokoro" | "voxcpm_05b" | "voxcpm_2b" | "omnivoice"
 
-    - Strips unknown/broken markup
+    - Strips unknown/broken markup (all current engines read plain text)
     - Converts numbers to words (requires num2words)
     - Expands common abbreviations
     - Strips URLs
     """
-    # Strip Fish Speech tags only for Kokoro — all Fish Speech engines preserve them
-    if engine == "kokoro":
-        text = _FISH_BRACKET_TAGS.sub(' ', text)
-        text = _FISH_EMOTION_TAGS.sub(' ', text)
+    text = _BRACKET_TAGS.sub(' ', text)
+    text = _EMOTION_TAGS.sub(' ', text)
 
     # 1. Strip URLs
     text = re.sub(r'https?://\S+|www\.\S+', '', text)
@@ -871,6 +869,33 @@ def is_omnivoice_installed() -> bool:
     return is_package_installed("omnivoice")
 
 
+def is_triton_installed() -> bool:
+    """Return True if triton (needed for torch.compile) is importable."""
+    return is_package_installed("triton")
+
+
+def ensure_triton(on_progress=None) -> bool:
+    """
+    Install triton so torch.compile can fuse kernels (3-10x faster inference
+    on VoxCPM/OmniVoice). Non-fatal: returns False if install fails, but the
+    caller should continue — the models still run, just slower.
+
+    On Windows the wheel is `triton-windows`; elsewhere it's plain `triton`.
+    """
+    if is_triton_installed():
+        return True
+    pkg = "triton-windows" if sys.platform == "win32" else "triton"
+    if on_progress:
+        on_progress(f"Installing {pkg} for faster inference...", None)
+    ok = install_package(pkg, on_progress=on_progress)
+    if not ok:
+        logger.warning(
+            "triton install failed — models will still work but run much "
+            "slower. You can install manually later: pip install %s", pkg,
+        )
+    return ok
+
+
 def hf_cache_has_model(repo_id: str) -> bool:
     """
     Return True if HuggingFace hub has the given repo cached locally.
@@ -942,13 +967,18 @@ def setup_voxcpm(variant: str, on_progress=None) -> bool:
             logger.error("setup_voxcpm: voxcpm package install failed.")
             return False
 
+    # Best-effort triton install for torch.compile (big speedup, non-fatal).
+    ensure_triton(on_progress=on_progress)
+
     if on_progress:
         on_progress("Downloading model weights...", None)
     try:
-        from voxcpm import VoxCPM
-        logger.info("Triggering VoxCPM weight download: %s", repo)
-        instance = VoxCPM.from_pretrained(repo, load_denoiser=False)
-        del instance
+        from huggingface_hub import snapshot_download
+        logger.info("Downloading VoxCPM weights: %s", repo)
+        snapshot_download(
+            repo_id=repo,
+            allow_patterns=["*.json", "*.safetensors", "*.pth", "*.bin", "*.model", "*.txt", "tokenizer*"],
+        )
     except Exception as exc:
         logger.error("setup_voxcpm(%s) weight download failed: %s", variant, exc)
         return False
@@ -979,13 +1009,18 @@ def setup_omnivoice(on_progress=None) -> bool:
             logger.error("setup_omnivoice: omnivoice package install failed.")
             return False
 
+    # Best-effort triton install for torch.compile (big speedup, non-fatal).
+    ensure_triton(on_progress=on_progress)
+
     if on_progress:
         on_progress("Downloading model weights...", None)
     try:
-        from omnivoice import OmniVoice
-        logger.info("Triggering OmniVoice weight download: %s", OMNIVOICE_REPO)
-        instance = OmniVoice.from_pretrained(OMNIVOICE_REPO, device_map="cpu")
-        del instance
+        from huggingface_hub import snapshot_download
+        logger.info("Downloading OmniVoice weights: %s", OMNIVOICE_REPO)
+        snapshot_download(
+            repo_id=OMNIVOICE_REPO,
+            allow_patterns=["*.json", "*.safetensors", "*.pth", "*.bin", "*.model", "*.txt", "tokenizer*"],
+        )
     except Exception as exc:
         logger.error("setup_omnivoice weight download failed: %s", exc)
         return False

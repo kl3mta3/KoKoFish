@@ -92,6 +92,15 @@ class OmniVoiceEngine:
                 self._dtype = torch.float16 if self._device.startswith("cuda") else torch.float32
                 self.provider = "cuda" if self._device.startswith("cuda") else "cpu"
 
+                if cuda_available:
+                    try:
+                        torch.set_float32_matmul_precision("high")
+                        torch.backends.cuda.matmul.allow_tf32 = True
+                        torch.backends.cudnn.allow_tf32 = True
+                        torch.backends.cudnn.benchmark = True
+                    except Exception as _e:
+                        logger.debug("TF32/cuDNN tuning skipped: %s", _e)
+
                 if on_progress:
                     on_progress("Loading OmniVoice model…", 0.3)
 
@@ -103,6 +112,16 @@ class OmniVoiceEngine:
                         device_map=self._device,
                         dtype=self._dtype,
                     )
+                    try:
+                        if os.environ.get("TORCH_COMPILE_DISABLE") != "1" \
+                                and cuda_available and hasattr(torch, "compile"):
+                            logger.info("OmniVoice: applying torch.compile (first run will be slow).")
+                            self._model = torch.compile(
+                                self._model, mode="reduce-overhead",
+                                dynamic=True, fullgraph=False,
+                            )
+                    except Exception as _ce:
+                        logger.warning("torch.compile wrap failed: %s", _ce)
                     self._loaded = True
 
                 logger.info("OmniVoice loaded on %s (%s).", self._device, self._dtype)
@@ -149,6 +168,7 @@ class OmniVoiceEngine:
         on_chunk: Optional[Callable] = None,
         on_complete: Optional[Callable[[str], None]] = None,
         on_error: Optional[Callable[[Exception], None]] = None,
+        **_ignored,
     ):
         """
         Generate cloned speech in a background thread.

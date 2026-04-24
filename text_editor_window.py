@@ -48,11 +48,11 @@ class TextEditorWindow(ctk.CTkToplevel):
     ----------
     parent      : root Tk window
     item        : playlist item dict (edited in-place on Save)
-    engine      : "kokoro" | "fish14" | "s1mini" | "s1"
+    engine      : "kokoro" | "voxcpm_05b" | "voxcpm_2b" | "omnivoice"
     on_save     : optional callback() fired after user clicks Save
     """
 
-    def __init__(self, parent, item: dict, engine: str = "fish14", on_save=None):
+    def __init__(self, parent, item: dict, engine: str = "kokoro", on_save=None):
         super().__init__(parent)
         self.item = item
         self.engine = engine
