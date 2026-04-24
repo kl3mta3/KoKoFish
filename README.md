@@ -19,27 +19,31 @@ Everything runs locally on your machine. No subscriptions. No API keys. No inter
 **Read Aloud (TTS)**
 
 - Drag and drop .txt, .pdf, .docx, and .epub files into a playlist
+- Paste text directly into Speech Lab and add it to the playlist (auto-named from the first few words)
 - Real-time sentence-by-sentence audio playback as text is generated
-- Adjustable speed, volume, and cadence controls
+- Engine-aware controls — speed on every engine, cadence on Kokoro, CFG + Inference Steps on VoxCPM and OmniVoice
 - Silent mode — generate audio files without playing them aloud
 - Save output as MP3 or WAV
 
 **Multiple AI Engines**
 
 - Kokoro — 82M parameter ONNX model, fast CPU inference, 54 built-in preset voices across multiple languages
-- Fish-Speech 1.4 — compact model with voice cloning support
-- Fish-Speech 1.5 — higher quality output with voice cloning support
+- VoxCPM 0.5B — compact voice-cloning model, 16 kHz output, low VRAM
+- VoxCPM 2B — high quality voice cloning, 48 kHz output, 30 languages, supports Control Instruction prompts
+- OmniVoice — k2-fsa cloning engine, 24 kHz output, 600+ languages
 
-**Voice Cloning (Fish-Speech only)**
+**Voice Cloning**
 
 - Record or upload a 15–180 second reference audio clip
-- Voice profiles are stored per engine so 1.4 and 1.5 libraries stay separate
-- Pre-computes VQ tokens for faster inference at playback time
+- Voice profiles are stored per engine so each library stays separate
+- Supported on VoxCPM 0.5B, VoxCPM 2B, and OmniVoice (Kokoro uses built-in preset voices)
 
 **Voice Lab**
 
 - Create, rename, and delete voice profiles
 - Reference audio is automatically trimmed to 180 seconds
+- **Voice Design** — describe the voice you want in plain English (e.g. "Gentle & Melancholic Girl", "Laid-Back Surfer Dude") via Control Instructions (VoxCPM 2B), plus Age / Gender / Tone / Pace chips that assemble the prompt for you
+- Generate Preview auto-loads the active engine if it isn't already loaded
 - Disabled automatically when Kokoro engine is active
 
 **Speech to Text (STT)**
@@ -52,7 +56,7 @@ Everything runs locally on your machine. No subscriptions. No API keys. No inter
 
 - Write or generate a multi-character script using `[CharacterName] dialogue` format
 - Assign a voice to each character in a reusable Character Profile
-- AI script generation from raw prose — automatically identifies speakers, strips attribution text, and formats the script (with optional emotion tags for Fish-Speech)
+- AI script generation from raw prose — automatically identifies speakers, strips attribution text, and formats the script
 - **Find in Script** — scan any tagged script and auto-populate the character list with every name found
 - **Enhance Script** — LLM pass over the finished script to improve conversation flow, natural delivery, and emotional continuity between lines
 - Play the full script with each character's assigned voice, switching voices per segment automatically
@@ -64,7 +68,7 @@ Everything runs locally on your machine. No subscriptions. No API keys. No inter
 - Tone rewriting (Casual, Formal, Dramatic, and more)
 - Translation to any language
 - TTS enhancement — rewrites text for more natural spoken delivery
-- AI tag suggester — adds pacing and emotion tags for Fish-Speech and Kokoro
+- AI tag suggester — adds pacing and emotion tags
 - **Assisted Flow** — an optional per-item pipeline that automatically runs grammar → translation → TTS enhancement before each item plays, so your playlist just sounds right
 - All AI features run locally using a small on-device model (no cloud, no API keys)
 
@@ -90,11 +94,11 @@ Everything runs locally on your machine. No subscriptions. No API keys. No inter
 <table>
   <tr>
     <td align="center"><b>Speech Lab — Kokoro</b></td>
-    <td align="center"><b>Speech Lab — Fish-Speech</b></td>
+    <td align="center"><b>Speech Lab — VoxCPM</b></td>
   </tr>
   <tr>
     <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Speech_Lab-Kokoro.png" alt="Speech Lab Kokoro" width="400"/></td>
-    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Speech_Lab-Fish-Speech.png" alt="Speech Lab Fish-Speech" width="400"/></td>
+    <td><img src="https://github.com/kl3mta3/KoKoFish/blob/main/Images/Speech_Lab-VoxCPM.png" alt="Speech Lab VoxCPM" width="400"/></td>
   </tr>
   <tr>
     <td align="center"><b>Text Editor</b></td>
@@ -153,7 +157,7 @@ Everything runs locally on your machine. No subscriptions. No API keys. No inter
 - Windows 10 or later
 - Python 3.12 — automatically installed by the launcher if not found
 - FFmpeg — automatically downloaded on first run
-- NVIDIA GPU with CUDA is optional but significantly speeds up Fish-Speech engines
+- NVIDIA GPU with CUDA is optional but significantly speeds up VoxCPM and OmniVoice inference
 
 ---
 
@@ -172,7 +176,7 @@ Everything runs locally on your machine. No subscriptions. No API keys. No inter
 
 ```
 The Full release includes PyTorch CPU wheels, Kokoro model, Qwen 0.5B model, and FFmpeg.
-Fish-Speech models download automatically the first time you switch to those engines.
+VoxCPM and OmniVoice weights download automatically the first time you switch to those engines.
 ```
 
 ### Advanced / Developer Install
@@ -202,8 +206,9 @@ On first launch the app will automatically download anything missing:
 - FFmpeg (~100 MB, one-time)
 - Kokoro model files (~300 MB, one-time)
 - Qwen 0.5B model (~400 MB, one-time)
-- Fish-Speech 1.4 source + checkpoints (~1.5 GB, one-time, only if you use that engine)
-- Fish-Speech 1.5 source + checkpoints (~1.5 GB, one-time, only if you use that engine)
+- VoxCPM 0.5B checkpoints (~1 GB, one-time, only if you use that engine)
+- VoxCPM 2B checkpoints (~4 GB, one-time, only if you use that engine)
+- OmniVoice checkpoints (~2 GB, one-time, only if you use that engine)
 
 **AI Writing Tools (llama-cpp-python):**
 The AI features (grammar check, tone rewriting, translation, tag generation, Prompt Lab) require `llama-cpp-python`. The app will prompt you to install it from Settings when you first use an AI feature. Pre-built CPU wheels install automatically with no compiler needed. If you want CUDA-accelerated LLM inference, enable CUDA in Settings first — the correct build will be selected automatically.
@@ -214,17 +219,18 @@ The AI features (grammar check, tone rewriting, translation, tag generation, Pro
 
 Select an engine from the Settings tab. The app saves your selection and restarts automatically. Each engine has its own voice library:
 
-- Fish-Speech 1.4 voices are stored in `voices/fish14/`
-- Fish-Speech 1.5 voices are stored in `voices/fish15/`
+- VoxCPM 0.5B voices are stored in `voices/voxcpm_05b/`
+- VoxCPM 2B voices are stored in `voices/voxcpm_2b/`
+- OmniVoice voices are stored in `voices/omnivoice/`
 - Kokoro uses built-in preset voices — no voice library needed
 
 ---
 
 ## CUDA Support
 
-CUDA is optional and only applies to Fish-Speech engines. Enabling it requires a compatible NVIDIA GPU and will trigger an automatic installation of the CUDA-enabled PyTorch build.
+CUDA is optional and applies to the voice-cloning engines (VoxCPM 0.5B, VoxCPM 2B, OmniVoice). Enabling it requires a compatible NVIDIA GPU and will trigger an automatic installation of the CUDA-enabled PyTorch build.
 
-To enable CUDA, go to Settings and toggle the CUDA option. The app will restart and use GPU acceleration for Fish-Speech inference.
+To enable CUDA, go to Settings and toggle the CUDA option. The app will restart and use GPU acceleration for inference. An optional **torch.compile** toggle is also available for a 3–10× speed-up after a one-time ~10 min kernel compile.
 
 ---
 
@@ -235,8 +241,9 @@ KoKoFish/
   launcher.py          -- auto-setup and launch entry point
   main.py              -- application startup and splash screen
   ui.py                -- main window, tabs, and event handlers
-  tts_engine.py        -- Fish-Speech TTS engine wrapper
   kokoro_engine.py     -- Kokoro ONNX engine with sentence-level streaming
+  voxcpm_engine.py     -- VoxCPM 0.5B / 2B voice-cloning engine wrapper
+  omnivoice_engine.py  -- OmniVoice (k2-fsa) voice-cloning engine wrapper
   stt_engine.py        -- Whisper speech-to-text engine
   tag_suggester.py     -- AI writing tools (grammar, tone, translate, tags)
   voice_manager.py     -- voice profile creation and management
@@ -248,9 +255,9 @@ KoKoFish/
     profiles/          -- character profiles (JSON) for Script Lab
   models/              -- downloaded LLM and Kokoro model files
   voices/
-    fish14/            -- voice profiles for Fish-Speech 1.4
-    fish15/            -- voice profiles for Fish-Speech 1.5
-  fish-speech/         -- Fish-Speech repository (downloaded on first use)
+    voxcpm_05b/        -- voice profiles for VoxCPM 0.5B
+    voxcpm_2b/         -- voice profiles for VoxCPM 2B
+    omnivoice/         -- voice profiles for OmniVoice
   packages/            -- pre-downloaded Python wheels (Full release only)
 ```
 
@@ -258,7 +265,8 @@ KoKoFish/
 
 ## Acknowledgments
 
-- [Fish-Speech](https://github.com/fishaudio/fish-speech) by fishaudio
+- [VoxCPM](https://github.com/OpenBMB/VoxCPM) by OpenBMB
+- [OmniVoice](https://github.com/k2-fsa/OmniVoice) by k2-fsa
 - [Kokoro TTS](https://github.com/hexgrad/kokoro) by hexgrad
 - [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx) by thewh1teagle
 - [Whisper](https://github.com/openai/whisper) by OpenAI
