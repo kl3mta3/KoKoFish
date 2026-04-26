@@ -35,7 +35,13 @@ DEFAULTS = {
     "volume": 80,
     "cadence": 50,
     "cfg_value": 2.0,
-    "inference_steps": 32,
+    "inference_steps": 10,
+    # VoxCPM stop-head sync stride. 1 = check every patch (model's intended
+    # behavior). Empirical testing showed the per-patch sync isn't the
+    # bottleneck and values >1 risk the model overshooting its natural
+    # stop into garbage audio. Kept settable from settings.json for power
+    # users; the UI slider was removed.
+    "cpu_skips": 1,
     "window_geometry": "1280x800",
     # CPU thread limit (0 = use all cores)
     "cpu_threads": 0,

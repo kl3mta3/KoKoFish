@@ -29,11 +29,23 @@ try:
     _settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
     if os.path.isfile(_settings_path):
         with open(_settings_path, "r", encoding="utf-8") as _sf:
-            _compile_on = bool(_json.load(_sf).get("torch_compile_enabled", False))
+            _settings_blob = _json.load(_sf)
     else:
-        _compile_on = False
+        _settings_blob = {}
+    _compile_on = bool(_settings_blob.get("torch_compile_enabled", False))
+    _engine = str(_settings_blob.get("engine", "kokoro")).lower()
 except Exception:
     _compile_on = False
+    _engine = "kokoro"
+
+# VoxCPM runs all inference on a single persistent worker thread (see
+# voxcpm_engine._worker_loop), so cudagraph_trees TLS stays valid across
+# generate() calls. That makes the cudagraph killswitch unnecessary — and
+# costly: stripping cudagraphs forfeits the entire reason `reduce-overhead`
+# mode exists. OmniVoice still spawns a fresh thread per generate(), so it
+# would crash with cudagraphs enabled — the killswitch stays for it.
+_engine_safe_for_cudagraphs = _engine.startswith("voxcpm")
+
 if not _compile_on:
     os.environ["TORCHDYNAMO_DISABLE"] = "1"
     os.environ["TORCH_COMPILE_DISABLE"] = "1"
@@ -41,50 +53,44 @@ else:
     # Serialize Inductor's worker pool so it spawns one compile subprocess
     # at a time instead of flooding the screen with cmd windows.
     os.environ.setdefault("TORCHINDUCTOR_COMPILE_THREADS", "1")
-    # Disable CUDAGraph trees. They require thread-local state initialized
-    # on the same thread that runs inference; our generate worker is a
-    # separate thread, which triggers `assert _is_key_in_tls(...)` in
-    # torch._inductor.cudagraph_trees. Keep the Inductor kernel speedup,
-    # skip the graph-capture layer.
-    os.environ["TORCHINDUCTOR_CUDAGRAPHS"] = "0"
 
-    # The env var above is ignored when a caller (e.g. VoxCPM's internal
-    # warm-up) passes mode="reduce-overhead" or mode="default" to
-    # torch.compile — those modes force cudagraphs=True at the call site,
-    # overriding the config. Patch torch.compile and torch._inductor.config
-    # so every compile call in the process gets cudagraphs stripped.
-    def _install_cudagraph_killswitch():
-        try:
-            import torch
-            import torch._inductor.config as _ic
+    if not _engine_safe_for_cudagraphs:
+        # Disable CUDAGraph trees for engines that spawn a fresh worker thread
+        # per generate(). cudagraph_trees asserts on TLS init from the same
+        # thread that ran the compiled function — fails the second call.
+        os.environ["TORCHINDUCTOR_CUDAGRAPHS"] = "0"
+
+        # The env var above is ignored when a caller (e.g. OmniVoice's warm-up)
+        # passes mode="reduce-overhead" to torch.compile — that mode forces
+        # cudagraphs=True at the call site. Patch torch.compile so every
+        # affected compile call gets cudagraphs stripped.
+        def _install_cudagraph_killswitch():
             try:
-                _ic.triton.cudagraphs = False
+                import torch
+                import torch._inductor.config as _ic
+                try:
+                    _ic.triton.cudagraphs = False
+                except Exception:
+                    pass
+
+                _orig_compile = torch.compile
+
+                def _compile_no_cudagraphs(*args, **kwargs):
+                    # PyTorch raises if BOTH `mode` and `options` are set.
+                    # The global config flag above already disables cudagraphs
+                    # process-wide, so per-call options injection is redundant
+                    # AND breaks compile entirely. Just downgrade reduce-overhead
+                    # to default — `default` mode honours the global config.
+                    if kwargs.get("mode") == "reduce-overhead":
+                        kwargs["mode"] = "default"
+                    return _orig_compile(*args, **kwargs)
+
+                torch.compile = _compile_no_cudagraphs
             except Exception:
+                # torch not installed yet — engine will retry when it imports torch.
                 pass
 
-            _orig_compile = torch.compile
-
-            def _compile_no_cudagraphs(*args, **kwargs):
-                # Force options.triton.cudagraphs=False on every call.
-                opts = dict(kwargs.get("options") or {})
-                opts["triton.cudagraphs"] = False
-                kwargs["options"] = opts
-                # reduce-overhead hard-requires cudagraphs; downgrade to default.
-                if kwargs.get("mode") == "reduce-overhead":
-                    kwargs["mode"] = "default"
-                return _orig_compile(*args, **kwargs)
-
-            torch.compile = _compile_no_cudagraphs
-        except Exception:
-            # torch not installed yet — engine will retry when it imports torch.
-            pass
-
-    # Install lazily after torch is available. Import hook via sys.meta_path
-    # is overkill; instead, run on first torch import by stashing a flag and
-    # letting the engine call it. Simpler: call immediately — torch is
-    # imported via the engine loader, and this function no-ops if torch
-    # isn't installed yet.
-    _install_cudagraph_killswitch()
+        _install_cudagraph_killswitch()
     # On Windows, Inductor/Triton spawn cl.exe, ninja, and Python workers
     # via subprocess.Popen — each flashes a console window. Monkey-patch
     # Popen to inject CREATE_NO_WINDOW before torch is imported so every

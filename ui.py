@@ -841,6 +841,7 @@ class KoKoFishUI:
             self._make_tooltip(self.steps_label,  t("SPEECH_LAB_TOOLTIP_STEPS"))
             self._make_tooltip(self.steps_slider, t("SPEECH_LAB_TOOLTIP_STEPS"))
 
+
         # ── Content Style dropdown ────────────────────────────────────────
         style_frame = ctk.CTkFrame(controls, fg_color="transparent")
         style_frame.pack(side="left", padx=15)
@@ -3278,7 +3279,7 @@ class KoKoFishUI:
                     prompt_text=profile["prompt_text"] if profile else None,
                     speed=self.speed_slider.get(),
                     cfg_value=float(getattr(self.settings, "cfg_value", 2.0)),
-                    inference_timesteps=int(getattr(self.settings, "inference_steps", 32)),
+                    inference_timesteps=int(getattr(self.settings, "inference_steps", 32 if getattr(self.settings, "engine", "") == "omnivoice" else 10)),
                     output_path=out_path,
                     on_progress=_on_progress, on_chunk=_on_chunk,
                     on_complete=_on_complete, on_error=_on_error,
@@ -3446,11 +3447,18 @@ class KoKoFishUI:
             tab_design = self._voice_lab_tabview.add(t("VOICE_LAB_TAB_DESIGN"))
             tab_clone = self._voice_lab_tabview.add(t("VOICE_LAB_TAB_CLONE"))
 
-            self._build_mic_recorder_card(tab_clone)
-            self._build_upload_clip_card(tab_clone)
-            self.voice_grid_frame = ctk.CTkScrollableFrame(
-                tab_clone, fg_color=COLORS["bg_card"],
-                corner_radius=8, scrollbar_button_color=COLORS["accent"],
+            # Wrap the Clone-tab content in one outer scroll frame so the
+            # whole page scrolls together — the cards above the voice grid
+            # used to push it off-screen on shorter windows.
+            clone_scroll = ctk.CTkScrollableFrame(
+                tab_clone, fg_color="transparent",
+                scrollbar_button_color=COLORS["accent"],
+            )
+            clone_scroll.pack(fill="both", expand=True)
+            self._build_mic_recorder_card(clone_scroll)
+            self._build_upload_clip_card(clone_scroll)
+            self.voice_grid_frame = ctk.CTkFrame(
+                clone_scroll, fg_color=COLORS["bg_card"], corner_radius=8,
             )
             self.voice_grid_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
             self._refresh_voice_grid()
@@ -4232,24 +4240,39 @@ class KoKoFishUI:
         ctrl_row = ctk.CTkFrame(body, fg_color="transparent")
         ctrl_row.pack(fill="x", padx=14, pady=(6, 12))
 
-        btn_preview_clip = ctk.CTkButton(
-            ctrl_row, text="▶ " + t("VOICE_LAB_UPLOAD_BTN_PREVIEW"),
-            width=120, height=30, corner_radius=6,
-            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
-            border_color=COLORS["border"], border_width=1,
-            font=(FONT_FAMILY, 11), state="disabled",
-            command=lambda: _preview_clip(),
-        )
-        btn_preview_clip.pack(side="left", padx=(0, 8))
-
+        # Mirror the mic recorder's control layout: play icon, save icon,
+        # then the coloured Clone button.
         btn_clone_clip = ctk.CTkButton(
             ctrl_row, text=t("VOICE_LAB_UPLOAD_BTN_CLONE"),
-            width=150, height=30, corner_radius=6,
+            width=180, height=44, corner_radius=8,
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
-            font=(FONT_FAMILY, 12, "bold"), state="disabled",
+            font=(FONT_FAMILY, 14, "bold"), state="disabled",
             command=lambda: _clone_clip(),
         )
         btn_clone_clip.pack(side="right")
+
+        _clip_ib = {"width": 44, "height": 44, "corner_radius": 6, "font": (FONT_FAMILY, 17)}
+        btn_save_clip = ctk.CTkButton(
+            ctrl_row, text="💾",
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            border_color=COLORS["border"], border_width=1,
+            state="disabled",
+            command=lambda: _save_clip(),
+            **_clip_ib,
+        )
+        btn_save_clip.pack(side="right", padx=(0, 16))
+        self._make_tooltip(btn_save_clip, t("VOICE_LAB_TOOLTIP_SAVE_REC"))
+
+        btn_preview_clip = ctk.CTkButton(
+            ctrl_row, text="▶",
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_card_hover"],
+            border_color=COLORS["border"], border_width=1,
+            state="disabled",
+            command=lambda: _preview_clip(),
+            **_clip_ib,
+        )
+        btn_preview_clip.pack(side="right", padx=(0, 4))
+        self._make_tooltip(btn_preview_clip, t("VOICE_LAB_UPLOAD_BTN_PREVIEW"))
 
         # ── Drawing helpers ──────────────────────────────────────────────
         WAVE_Y = 10
@@ -4347,6 +4370,7 @@ class KoKoFishUI:
             _update_time_label()
 
         def _load_file(path: str):
+            _stop_clip_preview()
             try:
                 import soundfile as _sf
                 data, sr = _sf.read(path, dtype="float32", always_2d=False)
@@ -4367,6 +4391,7 @@ class KoKoFishUI:
                 text_color=COLORS["text_primary"],
             )
             btn_preview_clip.configure(state="normal")
+            btn_save_clip.configure(state="normal")
             btn_clone_clip.configure(state="normal")
 
         # ── Canvas interaction ──────────────────────────────────────────
@@ -4426,6 +4451,10 @@ class KoKoFishUI:
                 except Exception:
                     pass
                 self._clip_preview_stream = None
+            try:
+                btn_preview_clip.configure(text="▶")
+            except Exception:
+                pass
 
         def _clipped_slice():
             if self._clip_audio is None:
@@ -4437,17 +4466,68 @@ class KoKoFishUI:
             return self._clip_audio[i0:i1].astype(np.float32)
 
         def _preview_clip():
+            # Toggle: if already playing, stop and revert the icon.
+            if self._clip_preview_stream is not None:
+                _stop_clip_preview()
+                return
             import sounddevice as _sd
             seg = _clipped_slice()
             if seg is None or len(seg) == 0:
                 return
-            _stop_clip_preview()
+            pos = {"i": 0}
+
+            def _cb(outdata, frames, _t, _st):
+                remaining = len(seg) - pos["i"]
+                if remaining <= 0:
+                    outdata[:] = 0
+                    raise _sd.CallbackStop()
+                take = min(frames, remaining)
+                outdata[:take, 0] = seg[pos["i"]:pos["i"] + take]
+                if take < frames:
+                    outdata[take:] = 0
+                pos["i"] += take
+
+            def _done():
+                self._clip_preview_stream = None
+                # Tk widgets can only be touched on the main thread.
+                self.root.after(0, lambda: btn_preview_clip.configure(text="▶"))
+
             try:
-                _sd.play(seg, self._clip_sr)
+                stream = _sd.OutputStream(
+                    samplerate=self._clip_sr, channels=1, dtype="float32",
+                    callback=_cb, finished_callback=_done,
+                )
+                self._clip_preview_stream = stream
+                stream.start()
+                btn_preview_clip.configure(text="⏸")
             except Exception as exc:
                 logger.warning("Clip preview failed: %s", exc)
+                self._clip_preview_stream = None
+
+        def _save_clip():
+            seg = _clipped_slice()
+            if seg is None or len(seg) == 0:
+                return
+            from tkinter.filedialog import asksaveasfilename
+            base = os.path.splitext(os.path.basename(self._clip_path or "clip"))[0]
+            dest = asksaveasfilename(
+                parent=self.root,
+                defaultextension=".wav",
+                filetypes=[("WAV audio", "*.wav"), ("All files", "*.*")],
+                initialfile=f"{base}_clip.wav",
+                title="Save clip as…",
+            )
+            if not dest:
+                return
+            try:
+                import soundfile as _sf
+                _sf.write(dest, seg, self._clip_sr, subtype="PCM_16")
+            except Exception as exc:
+                logger.error("Clip save failed: %s", exc, exc_info=True)
+                messagebox.showerror(t("COMMON_ERROR"), str(exc), parent=self.root)
 
         def _clone_clip():
+            _stop_clip_preview()
             seg = _clipped_slice()
             if seg is None or len(seg) == 0:
                 messagebox.showwarning(
@@ -8139,7 +8219,7 @@ class KoKoFishUI:
                 prompt_text=profile["prompt_text"] if profile else None,
                 speed=speed,
                 cfg_value=float(getattr(self.settings, "cfg_value", 2.0)),
-                inference_timesteps=int(getattr(self.settings, "inference_steps", 32)),
+                inference_timesteps=int(getattr(self.settings, "inference_steps", 32 if getattr(self.settings, "engine", "") == "omnivoice" else 10)),
                 output_path=_output_path,
                 on_progress=on_progress,
                 on_chunk=on_chunk,

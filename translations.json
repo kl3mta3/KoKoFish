@@ -18414,6 +18414,12 @@
     },
     "SPEECH_LAB_TOOLTIP_STEPS": {
       "en": "Inference/diffusion steps — more steps = cleaner audio, linearly slower."
+    },
+    "SPEECH_LAB_SKIPS_LABEL": {
+      "en": "CPU Skips: {value}"
+    },
+    "SPEECH_LAB_TOOLTIP_SKIPS": {
+      "en": "How often the model's stop-check is synced to CPU. 1 = every patch (slowest, exact stop). 2+ = every Nth patch (faster, may add a tiny silent tail)."
     }
   }
 }
